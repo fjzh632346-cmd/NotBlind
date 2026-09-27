@@ -67,12 +67,22 @@
   Var MineradioSmallFont
   Var MineradioDirectoryPage
   Var MineradioDirectoryInput
+  Var NBLegacyDir
 !endif
+
+; [二改 3.0] 旧版 Mineradio（appId com.mineradio.desktop，含原作者 2.2.0 和我们发过的 2.3.0）
+; 的卸载信息键 = electron-builder 用 appId 算出的 GUID。装 Not Blind 时顺手把它卸掉，
+; 数据（%APPDATA%\Mineradio）不删，Not Blind 第一次启动会自动搬过去。
+!define NB_LEGACY_KEY "9733721a-009e-52bc-b705-49059cd80258"
+!define NB_LEGACY_EXE "Mineradio.exe"
+!define NB_LEGACY_UNINSTALLER "Uninstall Mineradio.exe"
+!define NB_LEGACY_MARKER ".mineradio-install-root"
 
 !macro customInit
   !ifndef BUILD_UNINSTALLER
     Call MineradioUsePreferredInstallDir
     Call MineradioDisableUnsafeOldUninstallers
+    Call NBFindLegacyMineradio
     ${If} ${Silent}
       Call MineradioValidateInstallDir
     ${EndIf}
@@ -86,6 +96,9 @@
     FileWrite $0 "appId=${MINERADIO_MARKER_APP_ID}$\r$\n"
     FileClose $0
   ${EndIf}
+  !ifndef BUILD_UNINSTALLER
+    Call NBRemoveLegacyMineradio
+  !endif
 !macroend
 
 !macro customRemoveFiles
@@ -810,6 +823,66 @@ Function MineradioValidateInstallDir
 
   valid:
 FunctionEnd
+Function NBReadLegacyLocation
+  ; 依次看 HKCU / HKLM 的卸载信息和 Software\<GUID>，第一个存在的路径放进 $0
+  ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${NB_LEGACY_KEY}" InstallLocation
+  StrCmp $0 "" 0 found
+  ReadRegStr $0 HKCU "Software\${NB_LEGACY_KEY}" InstallLocation
+  StrCmp $0 "" 0 found
+  ReadRegStr $0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${NB_LEGACY_KEY}" InstallLocation
+  StrCmp $0 "" 0 found
+  ReadRegStr $0 HKLM "Software\${NB_LEGACY_KEY}" InstallLocation
+  found:
+FunctionEnd
+
+Function NBFindLegacyMineradio
+  StrCpy $NBLegacyDir ""
+  Call NBReadLegacyLocation
+  ${If} $0 == ""
+    Return
+  ${EndIf}
+  Push "$0"
+  Call MineradioTrimInstallDir
+  Pop $0
+  ; 和新装的目录是同一个就别动（正常情况下不会：旧版在 ...\Mineradio，新版在 ...\NotBlind）
+  ${If} $0 == $INSTDIR
+    Return
+  ${EndIf}
+  IfFileExists "$0\${NB_LEGACY_EXE}" 0 +2
+    StrCpy $NBLegacyDir "$0"
+FunctionEnd
+
+Function NBRemoveLegacyMineradio
+  ${If} $NBLegacyDir == ""
+    Return
+  ${EndIf}
+  DetailPrint "正在卸载旧版 Mineradio：$NBLegacyDir"
+  ; 旧版开着的话先关掉，否则文件删不掉
+  nsExec::Exec 'taskkill /F /T /IM "${NB_LEGACY_EXE}"'
+  Pop $0
+  Sleep 900
+  ; 只在确认是旧版自己的安装目录（有 .mineradio-install-root 标记）时才调用它的卸载程序，
+  ; 否则旧卸载程序会弹"无法确认当前目录"的提示
+  IfFileExists "$NBLegacyDir\${NB_LEGACY_MARKER}" 0 skipUninstaller
+  IfFileExists "$NBLegacyDir\${NB_LEGACY_UNINSTALLER}" 0 skipUninstaller
+    ClearErrors
+    ExecWait '"$NBLegacyDir\${NB_LEGACY_UNINSTALLER}" /S _?=$NBLegacyDir' $1
+    DetailPrint "旧版卸载程序返回 $1"
+  skipUninstaller:
+  ; 旧卸载程序只删文件、不删子目录（resources、locales…），这里补删。
+  ; 条件：有旧版标记、而且 Mineradio.exe 已经没了（说明卸载真的跑完了）
+  IfFileExists "$NBLegacyDir\${NB_LEGACY_MARKER}" 0 done
+  IfFileExists "$NBLegacyDir\${NB_LEGACY_EXE}" done 0
+    RMDir /r "$NBLegacyDir\resources"
+    RMDir /r "$NBLegacyDir\locales"
+    RMDir /r "$NBLegacyDir\swiftshader"
+    Delete "$NBLegacyDir\${NB_LEGACY_UNINSTALLER}"
+    Delete "$NBLegacyDir\${NB_LEGACY_MARKER}"
+    RMDir "$NBLegacyDir"
+    DetailPrint "旧版 Mineradio 已卸载（设置和登录会在第一次打开 Not Blind 时自动带过来）"
+  done:
+FunctionEnd
+
 Function MineradioWelcomeShow
   Call MineradioUsePreferredInstallDir
 
@@ -839,7 +912,12 @@ Function MineradioWelcomeShow
   Pop $0
   SetCtlColors $0 "" "E2412B"
 
-  ${NSD_CreateLabel} 22u 96u 238u 24u "为这台电脑安装 ${PRODUCT_NAME}。默认安装到 D:\${MINERADIO_INSTALL_DIR_NAME}，下一步可以自由选择其它位置。"
+  ${If} $NBLegacyDir != ""
+    ; [二改 3.0] 装过旧版 Mineradio：这一段换成说明（位置、大小不变）
+    ${NSD_CreateLabel} 22u 96u 238u 26u "Not Blind 是 Mineradio 的新名字。安装时会自动关闭并卸载旧版 Mineradio，你的设置、登录和歌单会带过来。"
+  ${Else}
+    ${NSD_CreateLabel} 22u 96u 238u 24u "为这台电脑安装 ${PRODUCT_NAME}。默认安装到 D:\${MINERADIO_INSTALL_DIR_NAME}，下一步可以自由选择其它位置。"
+  ${EndIf}
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioBodyFont 1
   SetCtlColors $0 "4B5263" "FFFFFF"
@@ -1047,9 +1125,13 @@ Function un.MineradioRemoveInstalledFiles
   Delete "$INSTDIR\vk_swiftshader_icd.json"
   Delete "$INSTDIR\vulkan-1.dll"
 
-  RMDir "$INSTDIR\locales"
-  RMDir "$INSTDIR\resources"
-  RMDir "$INSTDIR\swiftshader"
+  ; [二改 3.0] 原来这里是不带 /r 的 RMDir，子目录里有文件就删不掉，卸载后会剩下 resources\app 整个程序。
+  ; 走到这里之前 un.MineradioValidateUninstallDir 已经确认过目录名和 .notblind-install-root 标记。
+  RMDir /r "$INSTDIR\locales"
+  RMDir /r "$INSTDIR\resources"
+  RMDir /r "$INSTDIR\swiftshader"
+  ; 标记也删掉（升级时新安装程序会在 customInstall 里重新写）
+  Delete "$INSTDIR\${MINERADIO_INSTALL_MARKER}"
 
   RMDir "$INSTDIR"
 FunctionEnd

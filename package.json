@@ -1,7 +1,7 @@
 {
   "name": "notblind",
   "productName": "NotBlind",
-  "version": "2.3.0",
+  "version": "3.0.0",
   "description": "Windows 沉浸式音乐播放器，融合桌面模式、歌词舞台、粒子视觉和 3D 歌单架。",
   "author": "Not Blind (fjzh632346-cmd)",
   "contributors": [
@@ -46,6 +46,7 @@
       "dj-analyzer.js",
       "LICENSE",
       "NOTICE.md",
+      "feedback.local.json",
       "docs/THIRD_PARTY_PORTS.md",
       "package.json",
       "!desktop/wallpaper-preload.js",
@@ -128,7 +129,7 @@
     "music-metadata": "11.14.0"
   },
   "devDependencies": {
-    "electron": "^42.4.1",
+    "electron": "^42.11.8",
     "electron-builder": "^26.15.3",
     "rcedit": "^5.0.2"
   }

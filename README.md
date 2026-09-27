@@ -9,7 +9,7 @@ Not Blind 是一款 Windows 桌面沉浸式音乐播放器：有多套可切换�
 
 ## 和原版 Mineradio 相比改了什么
 
-- **改名换装**：软件名、图标、安装向导、开场动画（「一线」地平线开场）都换成了 Not Blind 自己的设计。appId 也换了新的，可以和原版 Mineradio 同时安装。
+- **改名换装**：软件名、图标、安装向导、开场动画（「一线」地平线开场）都换成了 Not Blind 自己的设计。装过原版 Mineradio 或二改版 2.3.0 的电脑，安装 Not Blind 时会自动关闭并卸载旧版，设置、登录和歌单会带过来。
 - **主页主题**：回声（默认）、星图（北斗天穹）、午后窗影、孔版海报四套，左上角拉绳或在设置里切换。每套主题都有自己的歌单栏、搜索框、视觉/设置面板风格，主页还会显示当前歌词。
 - **播放页**：新增镜湖、声纹沙、铜雨、谐振等 3D 视觉效果和对应的歌词动效，另有平面（2D）歌词和配套的平面歌单。
 - **桌面模式**：拼图进出场、编辑态自动隐藏桌面图标、右键回退、顶部灵动岛、限帧省电等。
@@ -22,6 +22,8 @@ Not Blind 是一款 Windows 桌面沉浸式音乐播放器：有多套可切换�
 ## 下载
 
 到本仓库的 [Releases](https://github.com/fjzh632346-cmd/NotBlind/releases) 页面，下载 `NotBlind-版本号-Setup.exe` 并运行。每个版本的源码与同名 tag 对应。
+
+以前装过 Mineradio（原版 2.2.0 或二改版 2.3.0）的话，直接装 Not Blind 就行，不用先卸载。第一次打开会有一份使用引导，之后在「设置 › 常用 › 使用引导」可以再看。
 
 安装包没有数字签名，Windows 可能提示风险：浏览器下载栏点「保留」；蓝色 SmartScreen 窗口点「更多信息 → 仍要运行」。如果杀毒软件明确报毒，请不要运行，并在 Issues 里反馈。
 
@@ -42,7 +44,7 @@ $env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
 $env:ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-builder-binaries/"
 ```
 
-软件内反馈要连到你自己的接收服务器：在 `package.json` 的 `notblind.feedback` 里填 `endpoint` 和 `key`。不填的话，反馈功能不会发送任何东西。
+软件内反馈要连到你自己的接收服务器：在项目根目录建一个 `feedback.local.json`，写 `{"endpoint": "http://你的服务器:端口/api/feedback", "key": "你的 appKey"}`（这个文件不会进 Git，打包时会带上）；也可以直接填 `package.json` 的 `notblind.feedback`。不填的话，反馈功能不会发送任何东西。
 
 ## 第三方音乐平台说明
 

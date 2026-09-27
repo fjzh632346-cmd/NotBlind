@@ -163,11 +163,24 @@ const LEGACY_DATA_MIGRATION = STARTUP_QA_USER_DATA_PATH ? null : migrateLegacyAp
 fs.mkdirSync(STABLE_USER_DATA_PATH, { recursive: true });
 app.setPath('userData', STABLE_USER_DATA_PATH);
 // [二改] 反馈：软件里填写 → 发到作者服务器（desktop/feedback.js；地址在 package.json 的 notblind.feedback）
+// [二改 3.0] 作者自己的服务器地址 / 密钥放在项目根目录的 feedback.local.json（不进 Git，打包时带上），
+//   它的字段覆盖 package.json 里的同名字段；公开仓库里的 package.json 保持空值。
+function readFeedbackConfig() {
+  var base = Object.assign({}, APP_METADATA.feedback || {});
+  try {
+    var local = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'feedback.local.json'), 'utf8'));
+    if (local && typeof local === 'object') {
+      if (local.endpoint) base.endpoint = String(local.endpoint);
+      if (local.key) base.key = String(local.key);
+    }
+  } catch (_) { }
+  return base;
+}
 try {
   require('./feedback').installFeedback({
     app, ipcMain,
     getMainWindow: () => mainWindow,
-    config: APP_METADATA.feedback,
+    config: readFeedbackConfig(),
     userDataPath: STABLE_USER_DATA_PATH,
   });
 } catch (error) {

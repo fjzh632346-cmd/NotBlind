@@ -292,16 +292,33 @@
   // ============================================================
   // 3. 使用引导：默认页（回声）版式
   // ============================================================
+  // [二改 2026-09-27 · 3.0] 按现在的软件重写：加「主页」「播放页」「桌面」三页；「账号」并进欢迎页 + 最后一页的登录按钮
   var GUIDE = [
-    { w: '欢迎', en: 'WELCOME', target: 'stage', title: 'Not Blind 是一台看得见的收音机', body: '搜一首歌或者导入本地音乐，封面、歌词、粒子和镜头会跟着音乐一起动。下面几页带你认一下各个地方，很快。' },
-    { w: '搜索', en: 'SEARCH', selector: '#search-box', title: '从搜索开始', body: '鼠标移到屏幕最上方会出现搜索框；在主页上点主题里的搜索入口也行。任何时候按 Ctrl + K 都能直接开始搜。本地音乐可以直接拖进窗口。' },
-    { w: '播放', en: 'CONTROL', selector: '#bottom-bar', title: '播放控制在最下面', body: '播放、切歌、进度、音质、队列和歌词都在这一条里，鼠标靠近底部就会浮出来。' },
+    { w: '欢迎', en: 'WELCOME', target: 'stage', title: 'Not Blind：看得见的收音机', body: '搜一首歌或把本地音乐拖进来，封面、歌词、粒子和镜头会跟着音乐一起动；不登录也能搜索播放。下面几页带你认一下各个地方，← → 翻页，随时可以跳过。' },
+    { w: '主页', en: 'HOME', selector: '#mri-home', title: '主页是一张会动的海报', body: '左上角的拉绳往下拉一下，就换一套主页主题：回声、星图、午后窗影、孔版海报。在主页点播放不会跳走；想看播放页，点正在播放的歌名。框出来的这个小圆键随时带你回主页。' },
+    { w: '搜索', en: 'SEARCH', selector: '#search-box', title: '从搜索开始', body: '主页上点主题里的「搜索」入口，或者把鼠标移到窗口最上方；任何时候按 Ctrl + K 都能直接开始搜。本地音乐直接拖进窗口就能放。' },
+    { w: '播放', en: 'CONTROL', selector: '#bottom-bar', title: '播放控制在最下面', body: '播放、切歌、进度、音质、队列和歌词都在这一条里，鼠标靠近窗口底部就会浮出来。' },
     { w: '歌单', en: 'LIBRARY', selector: '#playlist-panel', title: '左边缘是歌单和队列', body: '鼠标贴着窗口左边停一下，当前队列、我的歌单、我的播客就会滑出来；点图钉可以让它一直开着。' },
-    { w: '账号', en: 'ACCOUNT', selector: '#user-btn', title: '登录只是为了同步', body: '右上角小岛上点头像，登录网易云、QQ 音乐等平台，同步歌单和每日推荐。不登录也能搜索播放。' },
-    { w: '视觉', en: 'VISUAL', selector: '#nb-visual-btn', title: '「视觉」：换主页、换播放页', body: '挑主页主题（回声、星图、午后窗影、孔版海报）和播放页的粒子效果，点一下就换。主页左上角的拉绳拉一下也能换主题。' },
-    { w: '设置', en: 'SETTINGS', selector: '#nb-settings-btn', title: '「设置」：细节都在这里', body: '颜色、歌词、动效、歌单架、性能都能细调，顶部可以直接搜功能。全部快捷键在「设置 › 快捷键」，以后想再看这份引导也在那里。' },
+    { w: '播放页', en: 'STAGE', target: 'stage', title: '播放页：歌词是主角', body: '点正在播放的歌名进来。滚轮拉远拉近，双击镜头回正，按 I 进沉浸模式（界面全部收起），Shift + R 自由转镜头。在 3D 画面上右键会摊开唱片架；其它地方右键都是「退回上一步」。' },
+    { w: '视觉', en: 'VISUAL', selector: '#nb-visual-btn', title: '「视觉」：换主页、换播放页', body: '主页主题和播放页效果都在这里，点一下就换。播放页效果分两类：3D 舞台（粒子和立体歌词）和平面歌词（整屏一张会动的歌词画面）。桌面歌词、「进播放页直接沉浸」也在这里开。' },
+    { w: '桌面', en: 'DESKTOP', selector: '#desktop-bg-btn', title: '把它铺成桌面背景', body: '点小岛上的「桌面背景」，Not Blind 会一块块拼成你的桌面壁纸，照常放歌。鼠标移到屏幕最上面会滑出播放器，在那里往上滚一下出搜索；按 Esc 或点「回到窗口」就回来。' },
+    { w: '设置', en: 'SETTINGS', selector: '#nb-settings-btn', title: '「设置」：细节都在这里', body: '颜色、歌词、动效、歌单架、性能都能细调，顶部可以直接搜功能。遇到问题或有想法，点设置右上角的「反馈」，不用任何账号就能发给作者。想再看这份引导：设置 › 常用 › 使用引导。' },
     { w: '键盘', en: 'KEYS', keys: true, title: '键盘小抄', body: '' }
   ];
+  // 从 Mineradio 升级上来的人（看过旧引导，或者一打开就已经登录着）：欢迎页先说一句改名
+  function legacyUser() {
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i) || '';
+        if (/^mineradio-visual-guide-seen/.test(k) && k !== VISUAL_GUIDE_SEEN_STORE_KEY) return true;
+      }
+    } catch (_e) { }
+    try { return typeof hasAnyPlatformLogin === 'function' && hasAnyPlatformLogin(); } catch (_e2) { return false; }
+  }
+  function loggedIn() {
+    try { if (typeof loginStatus !== 'undefined' && loginStatus && loginStatus.loggedIn) return true; } catch (_e) { }
+    try { return typeof hasAnyPlatformLogin === 'function' && hasAnyPlatformLogin(); } catch (_e2) { return false; }
+  }
   var CHEAT = [
     { k: [['空格']], l: '播放 / 暂停' },
     { k: [['←'], ['→']], l: '上一首 / 下一首' },
@@ -384,7 +401,10 @@
     '#nb-guide .nbg-ctl button.pri::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1.5px;background:var(--hot)}',
     '#nb-guide .nbg-ctl button:disabled{opacity:.3;cursor:default}',
     '#nb-guide .nbg-ctl .sep{width:1px;height:12px;background:var(--ink4)}',
-    '#nb-guide .nbg-ctl .skip{margin-left:auto;color:var(--ink3)}',
+    '#nb-guide .nbg-ctl .skip,#nb-guide .nbg-ctl .login{margin-left:auto;color:var(--ink3)}',
+    '#nb-guide .nbg-ctl .login{color:var(--ink2);border-bottom:1px solid var(--ink4)!important}',
+    '#nb-guide .nbg-ctl .login:hover{color:var(--hot)}',
+    '#nb-guide .nbg-note{display:block;margin-bottom:8px;color:var(--ink);padding-left:10px;border-left:2px solid var(--hot)}',
     '#nb-guide button:focus-visible{outline:1.5px solid var(--hot);outline-offset:3px}',
     // 键盘小抄
     '#nb-guide .nbg-cheat{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 26px;margin:4px 0 2px}',
@@ -398,6 +418,7 @@
     '#nb-guide .nbg-more{font-size:12px;color:var(--ink3);margin-top:4px}',
     '#nb-guide .nbg-more b{font-weight:400;color:var(--ink2);border-bottom:1px solid var(--ink4)}',
     '#nb-guide .nbg-hint{position:absolute;right:28px;bottom:22px;font:11px ' + MONO + ';letter-spacing:.12em;color:var(--ink3)}',
+    '@media (max-height:800px){#nb-guide .nbg-hint{display:none}}',
     '@media (prefers-reduced-motion:reduce){#nb-guide *{transition:none!important;animation:none!important}}'
   ].join('\n');
 
@@ -424,7 +445,7 @@
       '<button type="button" class="nbg-next" aria-label="下一步"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>' +
       '<div class="nbg-count"></div>' +
       '<div class="nbg-txt"><div class="nbg-kick"><i></i><span></span></div><div class="nbg-title"></div><div class="nbg-body"></div>' +
-      '<div class="nbg-ctl"><button type="button" class="prev">← 上一步</button><i class="sep"></i><button type="button" class="pri nx">下一步 →</button><button type="button" class="skip">跳过引导</button></div></div>' +
+      '<div class="nbg-ctl"><button type="button" class="prev">← 上一步</button><i class="sep"></i><button type="button" class="pri nx">下一步 →</button><button type="button" class="login">登录音乐平台</button><button type="button" class="skip">跳过引导</button></div></div>' +
       '<div class="nbg-hint">← → 翻页 · Esc 结束</div>';
     (document.getElementById('desktop-window-shell') || document.body).appendChild(el);
     G.el = el; G.sv = el.querySelector('svg');
@@ -436,6 +457,10 @@
     el.querySelector('.nbg-ctl .nx').addEventListener('click', function () { nextVisualGuideStep(); });
     el.querySelector('.nbg-ctl .prev').addEventListener('click', function () { if (G.i > 0) showVisualGuideStep(G.i - 1); });
     el.querySelector('.nbg-ctl .skip').addEventListener('click', function () { closeVisualGuide(true); });
+    el.querySelector('.nbg-ctl .login').addEventListener('click', function () {
+      closeVisualGuide(true);
+      setTimeout(function () { if (typeof showLoginModal === 'function') showLoginModal({ guided: true, source: 'guide' }); }, 260);
+    });
     // 引导盖着的时候，其它地方的右键菜单 / 点击都不要漏下去
     el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     return el;
@@ -471,7 +496,7 @@
     var rh = Math.max(40, Math.min(68, Math.floor((H - 118 - 120) / GUIDE.length)));
     col.style.setProperty('--rh', rh + 'px');
     col.style.setProperty('--fs', Math.round(rh * 0.7) + 'px');
-    var colBox = { left: 80, top: 110, right: 96 + 44 + rh * 0.7 * 2.2 + 90, bottom: 118 + rh * GUIDE.length };
+    var colBox = { left: 80, top: 110, right: 96 + 44 + rh * 0.7 * 3.2 + 90, bottom: 118 + rh * GUIDE.length };
     col.classList.toggle('dim', !!(tr && hit(tr, colBox)));
     // 说明块：先按默认位置排，量高度，放不下就把圆（和地平线）往上挪
     var txt = el.querySelector('.nbg-txt');
@@ -561,10 +586,14 @@
         var ks = cheatKeys(i).map(function (grp) { return grp.map(function (p) { return '<kbd>' + esc(p) + '</kbd>'; }).join('<i>+</i>'); }).join('<i>/</i>');
         return '<div class="nbg-ck"><span class="ks">' + ks + '</span><span>' + esc(c.l) + '</span></div>';
       }).join('') + '</div><div class="nbg-more">全部快捷键、改键：<b>设置 › 快捷键</b></div>';
+    } else if (G.i === 0 && G.legacy) {
+      body.innerHTML = '<span class="nbg-note">Mineradio 改名叫 Not Blind 了，你的设置、登录和歌单都已经带过来。</span>' + esc(step.body);
     } else body.textContent = step.body;
+    var last = G.i === n - 1;
     el.querySelector('.nbg-ctl .prev').disabled = G.i === 0;
-    el.querySelector('.nbg-ctl .nx').textContent = G.i === n - 1 ? '开始用 →' : '下一步 →';
-    el.querySelector('.nbg-ctl .skip').style.display = G.i === n - 1 ? 'none' : '';
+    el.querySelector('.nbg-ctl .nx').textContent = last ? '开始用 →' : '下一步 →';
+    el.querySelector('.nbg-ctl .skip').style.display = last ? 'none' : '';
+    el.querySelector('.nbg-ctl .login').style.display = last && !loggedIn() ? '' : 'none';
     el.querySelector('.nbg-next').setAttribute('aria-label', G.i === n - 1 ? '完成引导' : '下一步');
     Array.prototype.forEach.call(el.querySelectorAll('.nbg-row'), function (r, i) {
       r.classList.toggle('on', i === G.i); r.classList.toggle('past', i < G.i);
@@ -613,6 +642,7 @@
     startVisualGuide = function (opts) {
       ensureGuide();
       G.i = 0; G.el._shown = false;
+      G.legacy = legacyUser();
       G.el.classList.remove('in'); void G.el.offsetWidth; G.el.classList.add('in');
       return origStart.apply(this, arguments);
     };

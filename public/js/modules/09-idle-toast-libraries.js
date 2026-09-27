@@ -551,7 +551,8 @@ function markVisualGuideSeen() {
 }
 function maybeRunStartupVisualGuide(source) {
   if (visualGuideWasSeen() || visualGuideActive || immersiveMode || playing) return false;
-  if (source !== 'manual' && !hasAnyPlatformLogin()) return false;
+  // [二改 3.0] 原来没登录就不放引导（先弹登录）→ 新用户第一次打开反而看不到引导。
+  // 现在第一次打开一律先放引导；最后一页有「登录音乐平台」按钮。
   setTimeout(function () {
     if (!visualGuideWasSeen() || source === 'manual') startVisualGuide({ source: source || 'startup' });
   }, source === 'splash' ? 3600 : 1400);
@@ -675,6 +676,7 @@ function guideTargetRect(step) {
   // 没有灵动岛时，「视觉」「设置」落到标题栏里的旧按钮（已改成视觉 / 设置入口）
   if (targetSelector === '#nb-visual-btn' && !document.querySelector(targetSelector)) targetSelector = '#diy-mode-btn';
   if (targetSelector === '#nb-settings-btn' && !document.querySelector(targetSelector)) targetSelector = '#visual-guide-btn';
+  if (targetSelector === '#mri-home' && !document.querySelector(targetSelector)) targetSelector = '#home-btn';
   var target = targetSelector ? document.querySelector(useFullscreenDiyTarget ? '#fullscreen-diy-btn' : targetSelector) : null;
   if (target) {
     var style = window.getComputedStyle(target);

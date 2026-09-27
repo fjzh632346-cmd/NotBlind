@@ -740,7 +740,7 @@
       var origRect = window.guideTargetRect;
       var g = function (step) {
         var sel = step && step.selector;
-        var ISL_SEL = { '#user-btn': '.mri-acct', '#nb-visual-btn': '[data-mri-act=visual]', '#nb-settings-btn': '[data-mri-act=prefs]', '#diy-mode-btn': '[data-mri-act=visual]' };
+        var ISL_SEL = { '#user-btn': '.mri-acct', '#nb-visual-btn': '[data-mri-act=visual]', '#nb-settings-btn': '[data-mri-act=prefs]', '#diy-mode-btn': '[data-mri-act=visual]', '#desktop-bg-btn': '[data-mri-act=wall]' };
         if (SLOT && ISL_SEL[sel] && visible()) {
           if (!isl.guide) {
             isl.guide = true; size();
