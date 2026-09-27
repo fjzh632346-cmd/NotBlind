@@ -119,7 +119,10 @@ const {
 const { planCuefieldTransitionFromCache } = require('./cuefield/mineradio-bridge');
 
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || '0.0.0.0';
+// [二改][安全] 单独运行时默认只监听本机；确实要给局域网用时设 MINERADIO_ALLOW_LAN=1（并自行承担风险）
+const API_ALLOW_LAN = process.env.MINERADIO_ALLOW_LAN === '1';
+const HOST = process.env.HOST || (API_ALLOW_LAN ? '0.0.0.0' : '127.0.0.1');
+if (API_ALLOW_LAN) console.warn('[Security] MINERADIO_ALLOW_LAN=1：本地 API 对局域网开放，任何同网设备都能操作你的账号。');
 const LOGIN_EASTER_EGG_GATE_FILE = String(process.env.MINERADIO_LOGIN_EASTER_EGG_GATE_FILE || '');
 const LOGIN_EASTER_EGG_GATE_VERSION = String(process.env.MINERADIO_LOGIN_EASTER_EGG_GATE_VERSION || 'world-peace-v1');
 const LOGIN_EASTER_EGG_PROTECTED_ROUTES = new Set([
@@ -137,7 +140,7 @@ const DEFAULT_COOKIE_FILE = path.join(__dirname, '.cookie');
 const DEFAULT_QQ_COOKIE_FILE = path.join(__dirname, '.qq-cookie');
 const DEFAULT_KUGOU_COOKIE_FILE = path.join(__dirname, '.kugou-cookie');
 const DEFAULT_QISHUI_COOKIE_FILE = path.join(__dirname, '.qishui-cookie');
-const BEATMAP_CACHE_DIR = process.env.MINERADIO_BEAT_CACHE_DIR || 'D:\\MineradioCache\\beatmaps';
+const BEATMAP_CACHE_DIR = process.env.MINERADIO_BEAT_CACHE_DIR || 'D:\\NotBlindCache\\beatmaps';
 const CUEFIELD_FEEDBACK_FILE = process.env.CUEFIELD_FEEDBACK_FILE || path.join(__dirname, 'data', 'cuefield-feedback.jsonl');
 const LISTEN_SYNC_JOURNAL_FILE = process.env.MINERADIO_LISTEN_SYNC_FILE || path.join(__dirname, 'data', 'listen-sync-journal.json');
 const LISTEN_SYNC_JOURNAL_LIMIT = 600;
@@ -412,7 +415,6 @@ function serveStatic(res, filePath) {
 function sendJSON(res, data, status) {
   res.writeHead(status || 200, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*',
     'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
     'Pragma': 'no-cache',
     'Expires': '0',
@@ -437,7 +439,7 @@ function parseGitHubRepository(input) {
   return null;
 }
 function readUpdateConfig(pkg) {
-  const local = (pkg && pkg.mineradio && pkg.mineradio.update) || {};
+  const local = (pkg && ((pkg.notblind && pkg.notblind.update) || (pkg.mineradio && pkg.mineradio.update))) || {};
   const disabled = local.disabled === true || local.provider === 'none';
   if (disabled) {
     return {
@@ -606,7 +608,7 @@ function normalizeUpdateDownloadPages(values, fallbackLabel) {
 function extractReleaseDownloadPages(body) {
   const raw = String(body || '');
   const pages = [];
-  const hiddenPattern = /<!--\s*mineradio-download-page\s*:\s*(?:([^|<>\r\n]{1,32})\s*\|\s*)?(https:\/\/[^\s<>]+)\s*-->/gi;
+  const hiddenPattern = /<!--\s*(?:mineradio|notblind)-download-page\s*:\s*(?:([^|<>\r\n]{1,32})\s*\|\s*)?(https:\/\/[^\s<>]+)\s*-->/gi;
   let hidden = null;
   while ((hidden = hiddenPattern.exec(raw))) {
     pages.push({
@@ -668,7 +670,7 @@ function normalizeManifestUpdateInfo(data) {
     latestVersion,
     release: {
       tagName: release.tagName || release.tag_name || data.tagName || ('v' + latestVersion),
-      name: release.name || data.name || ('Mineradio v' + latestVersion),
+      name: release.name || data.name || ('Not Blind v' + latestVersion),
       version: latestVersion,
       publishedAt: release.publishedAt || release.published_at || data.publishedAt || '',
       htmlUrl,
@@ -690,7 +692,7 @@ async function readUpdateManifest(ref) {
   if (!value) throw new Error('UPDATE_MANIFEST_MISSING');
   if (/^https?:\/\//i.test(value)) {
     const resp = await fetch(value, {
-      headers: { 'User-Agent': `Mineradio/${APP_VERSION}` },
+      headers: { 'User-Agent': `NotBlind/${APP_VERSION}` },
     });
     if (!resp.ok) throw new Error('Update manifest ' + resp.status);
     return resp.json();
@@ -782,7 +784,7 @@ function localUpdateFallback(reason, opts) {
     latestVersion: APP_VERSION,
     release: {
       tagName: 'v' + APP_VERSION,
-      name: 'Mineradio v' + APP_VERSION,
+      name: 'Not Blind v' + APP_VERSION,
       version: APP_VERSION,
       htmlUrl: '',
       externalUrl: '',
@@ -842,6 +844,120 @@ async function fetchWithTimeout(url, opts, timeoutMs) {
     clearTimeout(timer);
   }
 }
+// ============================================================
+// [二改][安全] 本地 API 只给 Not Blind 自己的页面用。
+// 原来所有 /api/* 既不看 Host 也不看 Origin，还统一带 Access-Control-Allow-Origin: *，
+// 用户浏览器里打开的任何网页都能读账号信息、以用户身份点赞 / 发评论 / 登出 / 覆盖登录态，
+// 还能把 /api/cover、/api/audio 当成读内网的代理。
+// 这里要求：Host 必须是本机地址:端口（防 DNS 重绑定）；带 Origin 的请求 Origin 必须是本机；
+// 浏览器附带的 Sec-Fetch-Site 只能是 same-origin / none（挡掉 <img>/<audio> 这类不带 Origin 的跨站子资源）。
+// 渲染端全部用相对路径同源请求，不受影响。
+// ============================================================
+const LOCAL_API_HOSTS = new Set(['127.0.0.1:' + PORT, 'localhost:' + PORT, '[::1]:' + PORT]);
+function localApiRequestAllowed(req, pathname) {
+  if (!String(pathname || '').startsWith('/api/')) return true;
+  const host = String(req.headers.host || '').trim().toLowerCase();
+  if (!API_ALLOW_LAN && !LOCAL_API_HOSTS.has(host)) return false;
+  const origin = req.headers.origin;
+  if (origin !== undefined) {
+    let parsed = null;
+    try { parsed = new URL(String(origin)); } catch (_) { return false; }
+    const originHost = String(parsed.host || '').toLowerCase();
+    const originOk = parsed.protocol === 'http:' && (LOCAL_API_HOSTS.has(originHost) || (API_ALLOW_LAN && originHost === host));
+    if (!originOk) return false;
+  }
+  const site = String(req.headers['sec-fetch-site'] || '').trim().toLowerCase();
+  if (site && site !== 'same-origin' && site !== 'none') return false;
+  return true;
+}
+
+// [二改][安全] 代理类接口（封面 / 音频 / 播客分析）只允许访问公网地址：
+// 拒绝 localhost、回环、内网、链路本地、云元数据等地址，DNS 解析结果也要检查，
+// 并且手动跟随重定向、每一跳重新检查（防止 302 跳到内网）。
+const dnsPromises = require('dns').promises;
+const netModule = require('net');
+function isPrivateIpAddress(address) {
+  const ip = String(address || '').trim().toLowerCase();
+  if (!ip) return true;
+  if (netModule.isIPv4(ip)) {
+    const parts = ip.split('.').map((n) => Number(n));
+    const [a, b] = parts;
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 192 && b === 0 && parts[2] === 0) return true;
+    if (a === 198 && (b === 18 || b === 19)) return true;
+    if (a >= 224) return true;
+    return false;
+  }
+  if (netModule.isIPv6(ip)) {
+    if (ip === '::' || ip === '::1') return true;
+    if (ip.startsWith('::ffff:')) return isPrivateIpAddress(ip.slice(7));
+    if (/^f[cd]/.test(ip)) return true;        // fc00::/7 唯一本地
+    if (/^fe[89ab]/.test(ip)) return true;     // fe80::/10 链路本地
+    if (/^ff/.test(ip)) return true;           // 组播
+    if (ip.startsWith('64:ff9b:')) return true;
+    return false;
+  }
+  return true;
+}
+async function assertPublicRemoteUrl(rawUrl) {
+  let parsed;
+  try { parsed = new URL(String(rawUrl || '')); } catch (_) { throw new Error('REMOTE_URL_INVALID'); }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('REMOTE_URL_SCHEME_REJECTED');
+  if (parsed.username || parsed.password) throw new Error('REMOTE_URL_CREDENTIALS_REJECTED');
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (!hostname || hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local') || hostname.endsWith('.internal')) {
+    throw new Error('REMOTE_URL_HOST_REJECTED');
+  }
+  if (netModule.isIP(hostname)) {
+    if (isPrivateIpAddress(hostname)) throw new Error('REMOTE_URL_HOST_REJECTED');
+    return parsed;
+  }
+  const cached = publicHostCheckCache.get(hostname);
+  if (cached && cached.expires > Date.now()) {
+    if (!cached.ok) throw new Error('REMOTE_URL_HOST_REJECTED');
+    return parsed;
+  }
+  let records = [];
+  try {
+    records = await dnsPromises.lookup(hostname, { all: true, verbatim: true });
+  } catch (_) {
+    throw new Error('REMOTE_URL_DNS_FAILED');
+  }
+  const ok = records.length > 0 && !records.some((rec) => isPrivateIpAddress(rec && rec.address));
+  if (publicHostCheckCache.size > 512) publicHostCheckCache.clear();
+  publicHostCheckCache.set(hostname, { ok, expires: Date.now() + 60000 });
+  if (!ok) throw new Error('REMOTE_URL_HOST_REJECTED');
+  return parsed;
+}
+// 域名检查结果缓存 60 秒，封面一次几十张时不重复查 DNS
+const publicHostCheckCache = new Map();
+// 手动跟随重定向（最多 maxHops 跳），每一跳都重新做公网检查
+async function fetchPublicWithRedirects(rawUrl, opts, timeoutMs, maxHops) {
+  let current = String(rawUrl || '');
+  for (let hop = 0; hop <= (maxHops == null ? 4 : maxHops); hop += 1) {
+    await assertPublicRemoteUrl(current);
+    const resp = await fetchWithTimeout(current, Object.assign({}, opts || {}, { redirect: 'manual' }), timeoutMs);
+    if (resp.status >= 300 && resp.status < 400) {
+      const location = resp.headers.get('location');
+      if (!location) return resp;
+      try { resp.body && resp.body.cancel && resp.body.cancel().catch(() => {}); } catch (_) {}
+      current = new URL(location, current).href;
+      continue;
+    }
+    return resp;
+  }
+  throw new Error('REMOTE_URL_TOO_MANY_REDIRECTS');
+}
+const PROXY_SAFETY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'Content-Security-Policy': "sandbox; default-src 'none'",
+  'Cross-Origin-Resource-Policy': 'same-origin',
+};
+
 function promiseWithTimeout(promise, timeoutMs, code) {
   let timer = null;
   return Promise.race([
@@ -881,7 +997,7 @@ async function fetchTextFromCandidates(candidates, timeoutMs) {
     const candidate = list[i];
     try {
       const resp = await fetchWithTimeout(candidate.url, {
-        headers: { 'User-Agent': `Mineradio/${APP_VERSION}` },
+        headers: { 'User-Agent': `NotBlind/${APP_VERSION}` },
       }, timeoutMs || 6500);
       if (!resp.ok) throw updateError('HTTP_' + resp.status, 'HTTP ' + resp.status);
       return { text: await resp.text(), candidate };
@@ -910,7 +1026,7 @@ function parseLatestYmlUpdateInfo(text, reason) {
     latestVersion,
     release: {
       tagName: 'v' + latestVersion,
-      name: 'Mineradio v' + latestVersion,
+      name: 'Not Blind v' + latestVersion,
       version: latestVersion,
       publishedAt: releaseDate,
       htmlUrl,
@@ -922,7 +1038,7 @@ function parseLatestYmlUpdateInfo(text, reason) {
       patch: null,
       patchAvailable: false,
       summary: '发现新版本，请前往发布页面获取安装包。',
-      notes: ['更新入口已改为浏览器外部下载', 'Mineradio 不再在本地下载或应用补丁'],
+      notes: ['更新入口已改为浏览器外部下载', 'Not Blind 不再在本地下载或应用补丁'],
     },
     source: 'latest-yml',
     reason: reason || '',
@@ -945,7 +1061,7 @@ async function fetchLatestUpdateInfo() {
     const resp = await fetch(apiUrl, {
       signal: controller.signal,
       headers: {
-        'User-Agent': `Mineradio/${APP_VERSION}`,
+        'User-Agent': `NotBlind/${APP_VERSION}`,
         'Accept': 'application/vnd.github+json',
       },
     });
@@ -968,7 +1084,7 @@ async function fetchLatestUpdateInfo() {
       latestVersion,
       release: {
         tagName: data.tag_name || ('v' + latestVersion),
-        name: data.name || ('Mineradio v' + latestVersion),
+        name: data.name || ('Not Blind v' + latestVersion),
         version: latestVersion,
         publishedAt: data.published_at || '',
         htmlUrl,
@@ -994,21 +1110,25 @@ async function fetchLatestUpdateInfo() {
 function readRequestBody(req) {
   return new Promise(resolve => {
     let raw = '';
+    let settled = false;
+    const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
     req.on('data', chunk => {
       raw += chunk;
-      if (raw.length > 8 * 1024 * 1024) req.destroy();
+      // [二改] 超限时原来只 destroy 不 resolve，handler 会一直挂着
+      if (raw.length > 8 * 1024 * 1024) { raw = ''; req.destroy(); finish({}); }
     });
+    req.on('close', () => finish({}));
     req.on('end', () => {
-      if (!raw) { resolve({}); return; }
-      try { resolve(JSON.parse(raw)); }
+      if (!raw) { finish({}); return; }
+      try { finish(JSON.parse(raw)); }
       catch (e) {
         const params = new URLSearchParams(raw);
         const out = {};
         params.forEach((v, k) => { out[k] = v; });
-        resolve(out);
+        finish(out);
       }
     });
-    req.on('error', () => resolve({}));
+    req.on('error', () => finish({}));
   });
 }
 function normalizeApiCode(payload) {
@@ -2899,7 +3019,7 @@ function sendAudioBuffer(res, buffer, contentType, range) {
     }
     res.writeHead(206, {
       'Content-Type': contentType || 'audio/mp4',
-      'Access-Control-Allow-Origin': '*',
+      ...PROXY_SAFETY_HEADERS,
       'Accept-Ranges': 'bytes',
       'Content-Length': end - start + 1,
       'Content-Range': 'bytes ' + start + '-' + end + '/' + total,
@@ -2909,7 +3029,7 @@ function sendAudioBuffer(res, buffer, contentType, range) {
   }
   res.writeHead(200, {
     'Content-Type': contentType || 'audio/mp4',
-    'Access-Control-Allow-Origin': '*',
+    ...PROXY_SAFETY_HEADERS,
     'Accept-Ranges': 'bytes',
     'Content-Length': total,
   });
@@ -4634,11 +4754,25 @@ function loginEasterEggGateUnlocked() {
 
 const server = http.createServer(async (req, res) => {
   refreshConfiguredCookieStores(false);
-  const url = new URL(req.url, 'http://localhost:' + PORT);
+  let url;
+  try {
+    url = new URL(req.url, 'http://localhost:' + PORT);
+  } catch (_) {
+    // [二改] 畸形 URL 原来会抛成未处理异常，连接一直挂着
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Bad Request');
+    return;
+  }
   const pn = url.pathname;
 
+  // [二改][安全] 非本应用页面发来的 API 请求一律拒绝（见 localApiRequestAllowed 的说明）
+  if (!localApiRequestAllowed(req, pn)) {
+    sendJSON(res, { ok: false, error: 'LOCAL_API_FORBIDDEN', message: '该接口只供 Not Blind 自身使用。' }, 403);
+    return;
+  }
+
   if (pn === '/api/spotify' || pn.indexOf('/api/spotify/') === 0) {
-    sendJSON(res, { ok: false, error: 'PROVIDER_REMOVED', message: '该平台接口已从 Mineradio 移除。' }, 404);
+    sendJSON(res, { ok: false, error: 'PROVIDER_REMOVED', message: '该平台接口已从 Not Blind 移除。' }, 404);
     return;
   }
 
@@ -4654,8 +4788,8 @@ const server = http.createServer(async (req, res) => {
 
   if (pn === '/api/app/version') {
     sendJSON(res, {
-      name: APP_PACKAGE.name || 'mineradio',
-      productName: APP_PACKAGE.productName || 'Mineradio',
+      name: APP_PACKAGE.name || 'notblind',
+      productName: (APP_PACKAGE.notblind && APP_PACKAGE.notblind.displayName) || APP_PACKAGE.productName || 'Not Blind',
       version: APP_VERSION,
       update: {
         provider: UPDATE_CONFIG.provider,
@@ -4761,7 +4895,7 @@ const server = http.createServer(async (req, res) => {
       ok: false,
       externalOnly: true,
       error: 'UPDATE_EXTERNAL_ONLY',
-      message: 'Mineradio 已停用客户端本地下载与快速补丁，请使用外部下载页面。',
+      message: 'Not Blind 已停用客户端本地下载与快速补丁，请使用外部下载页面。',
     }, 410);
     return;
   }
@@ -4778,7 +4912,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Cuefield only consumes Mineradio's existing local beat-map cache. It never
+  // Cuefield only consumes Not Blind's existing local beat-map cache. It never
   // receives account cookies, song files, or playback URLs on this route.
   if (pn === '/api/cuefield/transition') {
     if (req.method !== 'POST') {
@@ -4813,7 +4947,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Feedback remains on this computer under Electron userData. The fan project's
-  // optional remote-feedback module is intentionally not wired into Mineradio.
+  // optional remote-feedback module is intentionally not wired into Not Blind.
   if (pn === '/api/cuefield/feedback') {
     if (req.method === 'GET') {
       try {
@@ -5031,7 +5165,7 @@ const server = http.createServer(async (req, res) => {
           : (err.code === 'SPOTIFY_CLIENT_ID_INVALID'
             ? 'Client ID 格式不正确，请只复制 Spotify Dashboard 中的 Client ID。'
             : (err.code === 'SPOTIFY_REDIRECT_URI_INVALID'
-              ? '回调地址无效，请使用 Mineradio 显示的 127.0.0.1 回调地址。'
+              ? '回调地址无效，请使用 Not Blind 显示的 127.0.0.1 回调地址。'
               : err.message)),
         missing,
       }, err && /^SPOTIFY_(?:CLIENT_ID|REDIRECT_URI)_/.test(String(err.code || '')) ? 400 : 500);
@@ -6132,6 +6266,8 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, { error: 'Invalid audio url' }, 400);
         return;
       }
+      // [二改][安全] 后端离线分析只允许公网地址，防止被拿来探测内网
+      try { await assertPublicRemoteUrl(audioUrl); } catch (_) { sendJSON(res, { error: 'Invalid audio url' }, 400); return; }
       console.log('[PodcastDjBeatmap] start', Math.round(durationSec || 0) + 's');
       const started = Date.now();
       const introSec = Math.max(0, Number(url.searchParams.get('intro') || 0) || 0);
@@ -6490,7 +6626,7 @@ const server = http.createServer(async (req, res) => {
       const comments = (raw || []).map(c => ({
         id: c.commentId,
         content: c.content || '',
-        likedCount: c.likedCount || 0,
+        likedCount: Number(c.likedCount) || 0,
         time: c.time || 0,
         user: c.user ? { id: c.user.userId, nickname: c.user.nickname || '', avatar: c.user.avatarUrl || '' } : null,
       })).filter(c => c.content);
@@ -6614,25 +6750,40 @@ const server = http.createServer(async (req, res) => {
       const coverUrl = url.searchParams.get('url');
       // URL 校验: 必须是 http(s) 开头, 否则直接 404 (不要让 fetch 抛错)
       if (!coverUrl || !/^https?:\/\//i.test(coverUrl)) {
-        res.writeHead(400, { 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(400);
         res.end('Invalid cover url');
         return;
       }
-      const resp = await fetch(coverUrl, { headers: { 'User-Agent': UA, 'Referer': 'https://music.163.com/' } });
-      const ct  = resp.headers.get('content-type') || 'image/jpeg';
+      // [二改][安全] 只允许公网地址、跟随重定向时每跳复查、8 秒超时、只当图片返回、最大 12MB
+      const resp = await fetchPublicWithRedirects(coverUrl, { headers: { 'User-Agent': UA, 'Referer': 'https://music.163.com/' } }, 8000, 4);
+      const upstreamType = String(resp.headers.get('content-type') || '').toLowerCase();
+      const ct  = /^image\//.test(upstreamType) ? upstreamType : 'image/jpeg';
       const cl  = resp.headers.get('content-length');
+      const COVER_MAX_BYTES = 12 * 1024 * 1024;
+      if (cl && Number(cl) > COVER_MAX_BYTES) { res.writeHead(413); res.end(); return; }
       const hdr = {
         'Content-Type': ct,
-        'Access-Control-Allow-Origin': '*',
-        'Cross-Origin-Resource-Policy': 'cross-origin',
+        ...PROXY_SAFETY_HEADERS,
         'Cache-Control': 'public, max-age=86400',
       };
       if (cl) hdr['Content-Length'] = cl;
       res.writeHead(resp.status, hdr);
+      if (!resp.body) { res.end(); return; }
       const reader = resp.body.getReader();
-      while (true) { const c = await reader.read(); if (c.done) break; res.write(c.value); }
+      let sent = 0;
+      while (true) {
+        const c = await readStreamChunkWithTimeout(reader, 8000);
+        if (c.done) break;
+        sent += c.value.length;
+        if (sent > COVER_MAX_BYTES) { try { await reader.cancel(); } catch (_) {} break; }
+        res.write(c.value);
+      }
       res.end();
-    } catch (err) { console.error('[Cover]', err); res.writeHead(500); res.end(); }
+    } catch (err) {
+      console.error('[Cover]', err && (err.code || err.name || err.message || 'COVER_PROXY_FAILED'));
+      if (res.headersSent) { try { res.destroy(); } catch (_) {} }
+      else { res.writeHead(/REMOTE_URL_/.test(String(err && err.message)) ? 400 : 502); res.end(); }
+    }
     return;
   }
 
@@ -6641,6 +6792,9 @@ const server = http.createServer(async (req, res) => {
     try {
       const audioUrl = url.searchParams.get('url');
       if (!audioUrl) { res.writeHead(400); res.end('Missing url'); return; }
+      if (!/^https?:\/\//i.test(audioUrl)) { res.writeHead(400); res.end('Invalid audio url'); return; }
+      // [二改][安全] 音频代理同样只允许公网地址（原来连协议都不检查）
+      await assertPublicRemoteUrl(audioUrl);
       const range = req.headers.range || '';
       if (audioUrl.includes('#auth=')) {
         const decrypted = await getQishuiDecryptedAudio(audioUrl);
@@ -6650,10 +6804,10 @@ const server = http.createServer(async (req, res) => {
         }
       }
       const hdr = audioProxyHeadersFor(audioUrl, range);
-      const up = await fetchWithTimeout(audioUrl, { headers: hdr }, 9000);
+      const up = await fetchPublicWithRedirects(audioUrl, { headers: hdr }, 9000, 4);
       const out = {
         'Content-Type': audioContentTypeForUrl(audioUrl, up.headers.get('content-type')),
-        'Access-Control-Allow-Origin': '*',
+        ...PROXY_SAFETY_HEADERS,
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'no-store',
       };
@@ -6687,7 +6841,8 @@ const server = http.createServer(async (req, res) => {
       if (res.headersSent) {
         try { res.destroy(); } catch (_) {}
       } else {
-        res.writeHead(err && err.name === 'AbortError' ? 504 : 502, { 'Cache-Control': 'no-store' });
+        const rejected = /REMOTE_URL_/.test(String(err && err.message));
+        res.writeHead(rejected ? 400 : (err && err.name === 'AbortError' ? 504 : 502), { 'Cache-Control': 'no-store' });
         res.end();
       }
     }

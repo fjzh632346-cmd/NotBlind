@@ -1612,7 +1612,7 @@ class WallpaperEngineRuntime {
     this.nativeTempPath = path.resolve(String(
       options.nativeTempPath
       || process.env.MINERADIO_NATIVE_TEMP_DIR
-      || path.join(process.env.LOCALAPPDATA || process.env.APPDATA || process.cwd(), 'Mineradio', 'native-helper-temp')
+      || path.join(process.env.LOCALAPPDATA || process.env.APPDATA || process.cwd(), 'NotBlind', 'native-helper-temp')
     ));
     fs.mkdirSync(this.nativeTempPath, { recursive: true });
     this.nativeExecFile = options.nativeExecFile || childProcess.execFile;
@@ -2769,7 +2769,7 @@ class WallpaperEngineRuntime {
     const packageVolume = path.parse(path.resolve(scenePackage)).root.toLowerCase();
     const preferredStageRoot = nativeVolume === packageVolume
       ? path.resolve(this.nativeTempPath, 'wallpaper-engine-scene-stage')
-      : path.resolve(path.parse(scenePackage).root, 'MineradioCache', 'wallpaper-engine-scene-stage');
+      : path.resolve(path.parse(scenePackage).root, 'NotBlindCache', 'wallpaper-engine-scene-stage');
     let stageRoot = preferredStageRoot;
     try {
       await fs.promises.mkdir(stageRoot, { recursive: true });

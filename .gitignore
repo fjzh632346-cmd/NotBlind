@@ -68,6 +68,13 @@ tmp/
 verification/
 screenshots/
 
-# Mineradio Plus 本地文件
+# Desktop-mode diagnostics (screenshots + logs)
 _debug_desktop/
 _backup_*/
+
+# Push helpers
+_push_tmp/
+*.bundle
+
+# Feedback server secrets
+/config.json

@@ -351,7 +351,10 @@ function clearDesktopIconRevealMask() {
 }
 
 function applyDesktopIconRevealMask(shieldRects) {
-  document.body.classList.remove('desktop-icons-locked');
+  // [二改][流畅度] 用 toggle(…, false)：classList.remove 即使类名本来就不在也会重写 class 属性，
+  // 触发下面的 MutationObserver → 100ms 后又来一遍，形成每秒 10 次、永不停止的
+  // "收集图标遮挡区（几十次 querySelectorAll + 强制排版）"循环，还会连带唤醒所有盯 body class 的模块。
+  document.body.classList.toggle('desktop-icons-locked', false);
   clearDesktopIconRevealMask();
 }
 
@@ -370,7 +373,7 @@ function updateDesktopModeControl(status) {
     softwareLockButton.setAttribute('aria-checked', softwareLocked ? 'true' : 'false');
     softwareLockButton.setAttribute('aria-busy', desktopSoftwareLockPending ? 'true' : 'false');
     softwareLockButton.disabled = desktopSoftwareLockPending || !active || !softwareLockSupported;
-    softwareLockButton.title = softwareLocked ? '恢复 Mineradio 操作' : '暂时把操作交给 Windows 桌面';
+    softwareLockButton.title = softwareLocked ? '恢复 Not Blind 操作' : '暂时把操作交给 Windows 桌面';
   }
   if (softwareLockState) softwareLockState.textContent = softwareLocked ? '软件操作已锁定，可在此解锁' : '软件可正常操作';
   if (document.body) document.body.classList.toggle('desktop-software-locked', active && softwareLocked);
@@ -809,8 +812,24 @@ function scheduleDesktopIconShieldReport(forceEmpty) {
   }, 100);
 }
 
+function desktopIconShieldMutationOnlyText(mutation) {
+  if (!mutation || mutation.type !== 'childList') return false;
+  var lists = [mutation.addedNodes, mutation.removedNodes];
+  for (var l = 0; l < lists.length; l++) {
+    var list = lists[l];
+    if (!list) continue;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].nodeType === 1) return false;
+    }
+  }
+  return true;
+}
+
 function desktopIconShieldMutationRelevant(mutation) {
   if (!mutation) return false;
+  // [二改][流畅度] 只是文字变了（播放时间、内存小标签每秒刷几次）不会改变遮挡区的形状；
+  // 尺寸真的变了由 ResizeObserver 负责。原来这里每次文字刷新都触发一遍完整的遮挡区收集。
+  if (desktopIconShieldMutationOnlyText(mutation)) return false;
   var target = mutation.target && mutation.target.nodeType === 1 ? mutation.target : null;
   if (target === document.documentElement || target === document.body) return true;
   try {
@@ -915,7 +934,7 @@ function currentDesktopSongMeta() {
   var song = playQueue && currentIdx >= 0 ? playQueue[currentIdx] : null;
   song = song || currentLyricSong && currentLyricSong() || {};
   return {
-    title: song.name || song.title || 'Mineradio',
+    title: song.name || song.title || 'Not Blind',
     artist: song.artist || song.ar || song.author || '',
     cover: (typeof songCoverSrc === 'function' && song) ? (songCoverSrc(song, 360) || song.cover || '') : (song.cover || '')
   };
@@ -962,7 +981,7 @@ function currentDesktopLyricSnapshot() {
       progressSpan: 4.8
     };
   }
-  return { text: normalizeDesktopLyricText(currentDesktopSongMeta().title || 'Mineradio'), progress: 0, progressSpan: 4.8 };
+  return { text: normalizeDesktopLyricText(currentDesktopSongMeta().title || 'Not Blind'), progress: 0, progressSpan: 4.8 };
 }
 function desktopOverlayColorValue(value, fallback) {
   var raw = String(value || '').trim();
@@ -1117,7 +1136,7 @@ function updateDesktopWallpaperRuntimeControls(status) {
     else toggle.removeAttribute('aria-disabled');
     toggle.title = !supported
       ? '当前系统不支持完整桌面模式'
-      : (attaching ? '正在切换完整桌面模式' : '把完整 Mineradio 放到 Windows 桌面；右上角控制器可显示或隐藏桌面图标，Esc 退出');
+      : (attaching ? '正在切换完整桌面模式' : '把完整 Not Blind 放到 Windows 桌面；右上角控制器可显示或隐藏桌面图标，Esc 退出');
   }
   var opacity = document.getElementById('fx-wallpaperopacity');
   if (opacity) opacity.disabled = !supported;
@@ -1255,7 +1274,7 @@ function revealDesktopWallpaperUiOnActivation(enabled, interactive) {
   var body = document.body;
   if (body) body.classList.add('desktop-wallpaper-hud-prime');
 
-  // Full desktop mode is the complete Mineradio workspace. Do not inherit the
+  // Full desktop mode is the complete Not Blind workspace. Do not inherit the
   // ordinary stage's immersive chrome suppression, which otherwise leaves only
   // the desktop-mode hotspot visible after the native attach finishes.
   if (typeof immersiveMode !== 'undefined' && immersiveMode

@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mineradio</title>
+  <title>Not Blind</title>
   <meta name="referrer" content="no-referrer">
   <link
     href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Inter:wght@200;300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&family=UnifrakturCook:wght@700&display=swap"
@@ -24,8 +24,8 @@
         <div class="desktop-app-title" aria-hidden="true"></div>
       </div>
       <div class="desktop-window-controls">
-        <button id="visual-guide-btn" class="icon-btn" type="button" onclick="startVisualGuide({ manual: true })"
-          title="查看使用引导" aria-label="查看使用引导">?</button>
+        <button id="visual-guide-btn" class="icon-btn" type="button" onclick="toggleFxPanel()"
+          title="设置" aria-label="设置">⚙</button>
         <button id="update-entry" class="update-entry" type="button" onclick="openUpdatePanel()" title="发现新版本"
           aria-label="发现新版本">
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -35,8 +35,8 @@
             <path class="update-arrow" d="M8.7 10.7 12 7.4l3.3 3.3"></path>
           </svg>
         </button>
-        <button id="diy-mode-btn" class="desktop-mode-btn" type="button" onclick="toggleDiyMode()" title="开启 DIY 玩家模式"
-          aria-label="开启 DIY 玩家模式" aria-pressed="false">DIY</button>
+        <button id="diy-mode-btn" class="desktop-mode-btn" type="button" onclick="toggleDiyMode()" title="视觉：主页主题与播放页效果"
+          aria-label="视觉" aria-pressed="false">视觉</button>
         <button class="desktop-window-btn" data-window-action="minimize" title="最小化" aria-label="最小化">
           <svg viewBox="0 0 16 16">
             <path d="M3 8h10" />
@@ -59,8 +59,8 @@
       </div>
     </div>
     <div id="fullscreen-diy-zone" aria-hidden="true">
-      <button id="fullscreen-diy-btn" class="desktop-mode-btn" type="button" onclick="toggleDiyMode()" title="DIY"
-        aria-label="DIY" aria-pressed="false">DIY</button>
+      <button id="fullscreen-diy-btn" class="desktop-mode-btn" type="button" onclick="toggleDiyMode()" title="视觉"
+        aria-label="视觉" aria-pressed="false">视觉</button>
     </div>
     <div id="custom-bg"><video id="custom-bg-video" muted loop playsinline preload="metadata"></video></div>
     <div id="wallpaper-engine-layer" aria-hidden="true">
@@ -80,17 +80,9 @@
     <div id="splash">
       <canvas id="splash-canvas"></canvas>
       <div class="splash-bg-noise"></div>
-
-      <!-- 主内容 -->
-      <div class="splash-content">
-        <div class="splash-wordmark" id="splash-wordmark" aria-label="Mineradio">
-          <span class="splash-word-mine">Mine</span>
-          <span class="splash-word-radio" aria-label="radio">rad<span class="splash-word-i"
-              aria-hidden="true"></span><span class="splash-word-o">o</span></span>
-        </div>
-        <div class="splash-signal-line"></div>
-        <div class="splash-sub">private visual radio</div>
-        <div class="splash-enter" aria-hidden="true">点击进入</div>
+      <div class="splash-brand">
+        <div class="splash-name" id="splash-name" data-name="Not Blind"></div>
+        <div class="splash-sub" id="splash-sub" style="display:none"></div>
       </div>
     </div>
 
@@ -158,15 +150,15 @@
       </div>
     </div>
 
-    <!-- 音乐 Home：只承载当前 Mineradio 数据，不引入外部仓库的服务端接口。 -->
-    <section id="empty-home" aria-label="Mineradio 音乐首页">
+    <!-- 音乐 Home：只承载当前 Not Blind 数据，不引入外部仓库的服务端接口。 -->
+    <section id="empty-home" aria-label="Not Blind 音乐首页">
       <div class="empty-home-shell">
         <div class="home-hero" aria-live="polite">
           <div class="daily-review-card">
             <div id="daily-review-date" class="daily-review-date"></div>
             <div id="daily-review-time" class="daily-review-time">--:--</div>
             <div class="daily-review-quote">“让今天的声音，从你喜欢的地方开始。”</div>
-            <div class="daily-review-source">— Mineradio</div>
+            <div class="daily-review-source">— Not Blind</div>
             <div class="daily-review-actions">
               <button type="button" onclick="homeDashboardNextReview()">换一条</button>
               <button id="home-dashboard-video-choose" type="button" onclick="openHomeDashboardVideoPicker()">选择 MP4</button>
@@ -196,7 +188,7 @@
             onclick="playHomeDaily()">
             <div class="home-card-label">DAILY MIX</div>
             <div class="home-card-title">每日推荐</div>
-            <div class="home-card-sub">使用当前 Mineradio 推荐数据</div>
+            <div class="home-card-sub">使用当前 Not Blind 推荐数据</div>
             <div class="home-card-art"></div>
           </button>
           <button class="home-card home-card-quick" data-home-tone="playlist" type="button"
@@ -336,12 +328,12 @@
     </button>
     <button id="fx-fab-hide-btn" type="button" onclick="toggleFxFabAutoHide(event)" title="自动隐藏视觉控制台">‹</button>
 
-    <!-- 控制台 (右侧贴边自动显示, 无关闭按钮) -->
-    <div id="fx-panel">
+    <!-- 设置面板（原视觉控制台；点右上角「设置」打开，Esc / 关闭 / 点外面收起） -->
+    <div id="fx-panel" role="dialog" aria-label="设置">
       <div class="fx-head">
         <div>
-          <div class="fx-title">视觉控制台</div>
-          <div class="fx-sub">MINERADIO VISUALS · 鼠标移开自动隐藏</div>
+          <div class="fx-title">设置</div>
+          <div class="fx-sub">细节调整 · 可以直接搜索功能</div>
         </div>
       </div>
 
@@ -805,7 +797,7 @@
             <div class="fx-toggle" id="t-desktopLyricsHighlight" onclick="toggleFx('desktopLyricsHighlight')"
               title="桌面歌词按播放进度高亮"><span>桌面歌词高亮跟随</span><span class="dot"></span></div>
             <div class="fx-toggle" id="t-wallpaperMode" onclick="toggleFx('wallpaperMode')"
-              title="把当前完整 Mineradio 放到 Windows 桌面；右上控制器可显示、隐藏桌面图标，Esc 退出">
+              title="把当前完整 Not Blind 放到 Windows 桌面；右上控制器可显示、隐藏桌面图标，Esc 退出">
               <span>完整桌面模式<em class="fx-dev-badge">试验</em></span><span class="dot"></span></div>
           </div>
           <div class="fx-section-label">桌面 / 壁纸</div>
@@ -1036,7 +1028,7 @@
           <div class="fx-sub memory-status-sub" id="memory-status-sub">后台先压缩播放器进程；系统级释放可清工作集、修改页、待机页</div>
           <div class="fx-toggle-grid">
             <div class="fx-toggle" id="t-memoryAutoTrimApp" onclick="toggleFx('memoryAutoTrimApp')"
-              title="最小化、托盘后台或深度后台时压缩 Mineradio / Electron 工作集"><span>自动压缩播放器</span><span class="dot"></span></div>
+              title="最小化、托盘后台或深度后台时压缩 Not Blind / Electron 工作集"><span>自动压缩播放器</span><span class="dot"></span></div>
             <div class="fx-toggle" id="t-memoryAutoTrimOnBackground" onclick="toggleFx('memoryAutoTrimOnBackground')"
               title="只在最小化、隐藏或不可见后台触发自动压缩，前台播放不打断"><span>后台触发压缩</span><span class="dot"></span></div>
             <div class="fx-toggle" id="t-memoryAutoSystemTrim" onclick="toggleFx('memoryAutoSystemTrim')"
@@ -1097,6 +1089,9 @@
         </div>
       </div>
 
+      <div class="fx-seg nb-help-row" id="nb-help-row">
+        <button type="button" onclick="toggleFxPanel(false);startVisualGuide({ manual: true })">重新看使用引导</button>
+      </div>
       <div class="fx-actions">
         <button class="fx-mini-btn" onclick="resetFx()">恢复默认</button>
       </div>
@@ -1472,7 +1467,7 @@
     <div id="drop-overlay">
       <div class="drop-text">拖放音乐或封面</div>
     </div>
-    <div id="free-camera-hint"><b>自由镜头</b> R 固定/退出 · WASD 移动 · 鼠标转向 · Shift 加速 · Space/Ctrl 升降 · Q/E 轻微旋转 · 滚轮景深 · K 回正
+    <div id="free-camera-hint"><b>自由镜头</b> Shift+R 固定/退出 · WASD 移动 · 鼠标转向 · Shift 加速 · Space/Ctrl 升降 · Q/E 轻微旋转 · 滚轮景深 · K 回正
     </div>
     <div id="loading-overlay">
       <div class="spinner"></div>
@@ -1749,7 +1744,7 @@
         <h2>收藏到歌单</h2>
         <div id="collect-current" class="collect-current"></div>
         <div class="collect-create">
-          <input id="collect-new-name" type="text" placeholder="新建 Mineradio 内置歌单" autocomplete="off" maxlength="40">
+          <input id="collect-new-name" type="text" placeholder="新建 Not Blind 内置歌单" autocomplete="off" maxlength="40">
           <button class="modal-btn primary" onclick="createPlaylistFromCollect()">创建内置</button>
         </div>
         <div id="collect-list" class="collect-list"></div>
@@ -1819,7 +1814,7 @@
         <div class="update-panel-inner">
           <div class="update-panel-head">
             <div>
-              <div class="update-kicker">MINERADIO</div>
+              <div class="update-kicker">NOT BLIND</div>
               <div id="update-modal-title" class="update-title">New release</div>
               <div id="update-modal-version" class="update-version">v2.2.0</div>
             </div>

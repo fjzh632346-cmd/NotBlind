@@ -1,46 +1,20 @@
-# Mineradio 2.2.0 发布流程
+# Not Blind 发布流程
 
-## 发布边界
+原版 Mineradio 2.2.0 的发布说明保存在 [docs/upstream/MINERADIO_RELEASE_2.2.0.md](./docs/upstream/MINERADIO_RELEASE_2.2.0.md)。
 
-- 正式版本：`2.2.0`
-- Git tag：`v2.2.0`
-- Release 标题：`Mineradio 2.2.0`
-- 安装包：`Mineradio-2.2.0-Setup.exe`
-- 仅从当前可信源码完整构建，不复用旧安装包或旧 `dist/`。
-- 正式 Release 不混入 Mineradio_Beat 产物。
-- GitHub Release 附带完整安装包 `Mineradio-2.2.0-Setup.exe` 和最小版本说明 `latest.yml`。后者供旧版主检测失败时的备用线路使用；不上传 blockmap 或补丁。
-- `2.0.3+` 客户端不得从 Release assets 识别或下载安装包，软件内更新仍只读取正文中的网盘线路。
-- Release 正文使用两条 `mineradio-download-page` 隐藏标记提供本次下载入口，保留百度云链接中的提取码参数。
+## 每次发新版
 
-## 网盘分发
+1. 把 `package.json` 的 `version` 改成新版本号（要比上一版大，旧版才会提示更新）。`docs/update/latest.yml` 里的版本号和日期也一起改。
+2. 打包：`npm run build:win`，产物是 `dist/NotBlind-<版本>-Setup.exe`。
+3. **先推源码，再发安装包**：把这次打包用的源码推到 main 分支，确认 GitHub 上的代码和打包用的完全一致。
+4. 在 Releases 新建 tag `v<版本>`（指向第 3 步推上去的那个提交），上传 `NotBlind-<版本>-Setup.exe` 和 `docs/update/latest.yml`。
+   - 正文前几行写更新说明：每行 72 字以内，软件内最多显示 4 行。
+   - 国内下载慢的话，可以在正文加网盘线路：`<!-- notblind-download-page: 名字|https://网盘链接 -->`。
+5. 在 Release 正文末尾保留一句：「Not Blind 是 Mineradio（XxHuberrr，GPL-3.0）的二次开发版本，本版本源码见同名 tag。」
 
-本次下载入口已更换，请使用以下新网盘链接，并更新旧收藏。通过公告中的网盘入口下载，也是在支持 Mineradio 的持续更新。
+## 开源协议（GPL-3.0）要守住的几条
 
-- 夸克盘：[下载 Mineradio 2.2.0](https://pan.quark.cn/s/4b124d3e81d3)
-- 百度云：[下载 Mineradio 2.2.0](https://pan.baidu.com/s/17CwpHUza67w_Grgc3s5nOw?pwd=SJHP)（提取码 `SJHP`）
-
-<!-- mineradio-download-page: 夸克盘|https://pan.quark.cn/s/4b124d3e81d3 -->
-<!-- mineradio-download-page: 百度云|https://pan.baidu.com/s/17CwpHUza67w_Grgc3s5nOw?pwd=SJHP -->
-
-## 公开更新说明
-
-- 本次下载入口已更换，请使用公告中的新网盘链接，并更新旧收藏。
-- 修复音乐接口的登录、账号识别与播放稳定性问题。
-- 改善歌单加载、搜索分页，以及网络异常后的恢复。
-- 新增粒子预设与更多手势操作，改善日常播放体验。
-
-## 发布资产
-
-GitHub Release 上传 `dist/Mineradio-2.2.0-Setup.exe` 和 `docs/update/latest.yml`。版本说明仅包含 `version/releaseDate`，不得使用带安装包下载字段的构建工具清单。构建生成的 blockmap、安装清单与校验记录仍只用于本地验收。
-
-2.1.0 的备用检测和入口限制见 [更新公告与旧版兼容](docs/UPDATE_DELIVERY.md)。每次发布都要同步版本说明；缺失会使主接口访问失败的旧客户端无法发现更新。
-
-安装包 SHA-256：`8fd318283bab2fe98190f7b879ede423dd8274a0aeec8d321570b8d022d4f989`。
-
-## 发布前检查
-
-- 运行完整回归检查与 Electron 启动检查。
-- 构建并检查 `win-unpacked/resources/app` 内容，核对正式版本、资源完整性和源码一致性。
-- 验证安装包启动、退出、重启和用户数据恢复。
-- 确认仓库与安装包不包含 Cookie、Token、凭据、缓存或本机日志。
-- 核对安装包 SHA-256，以及公告、README 和软件更新入口中的两条新网盘链接。
+- 每个发出去的安装包，都要有对应的完整源码可以下载（第 3、4 步的 tag 就是为这个）。
+- 不能删掉 LICENSE、NOTICE.md，也不能删掉原作者 XxHuberrr 的版权和署名。
+- 不能给别人加额外限制，比如「禁止修改」「禁止再发布」。
+- 反馈服务器的 `config.json`（后台密码）、各平台 Cookie、打包产物都不要提交到仓库。

@@ -427,7 +427,8 @@ window.addEventListener('mousemove', function (e) {
   var inFxPanel = fpOn && ex >= fpRect.left - 24 && ex <= fpRect.right + 24 && ey >= fpRect.top - 24 && ey <= fpRect.bottom + 24;
   var inFxFab = ex >= fabRect.left - 18 && ex <= fabRect.right + 18 && ey >= fabRect.top - 18 && ey <= fabRect.bottom + 18;
   var inFxBridge = fpOn && ex >= Math.min(fpRect.left, fabRect.left) - 18 && ex <= W && ey >= fpRect.bottom - 10 && ey <= fabRect.bottom + 18;
-  if (!diyPlayerMode) inFxPanel = inFxFab = inFxBridge = false;
+  // [二改] 设置面板改成点右上角「设置」打开、点关闭 / Esc / 点外面收起，不再靠鼠标移到右下角弹出
+  inFxPanel = inFxFab = inFxBridge = false;
   if (inFxFab || inFxPanel || inFxBridge) setPeek(fp, true, 'fx');
   else if (fpOn) setPeek(fp, false, 'fx');
   // 歌单/队列 DOM 面板只在左侧明确停留时出现，避免和右侧 3D 架抢焦点

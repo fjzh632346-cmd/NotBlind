@@ -131,7 +131,7 @@ function updateCamera() {
     orbit.lookAt.z + orbit.radius * cy * ct
   );
   camera.lookAt(orbit.lookAt);
-  var cameraShake = clampRange(Number(fx.cinemaShake) || 0, 0, 1.8);
+  var cameraShake = (window.NotBlindStageFx ? NotBlindStageFx.cameraShake(fx) : clampRange(Number(fx.cinemaShake) || 0, 0, 1.8));
   camera.rotation.z += beatCam.rollKick * cameraShake;
 
   var cameraPunch = Math.max(camPunch * 0.55, beatCam.punch * 0.54 + beatCam.radiusKick * 0.16) * cameraShake;
@@ -279,7 +279,7 @@ function updateCinema(dt) {
   var damp = orbit.rotating ? 0.25 : 1.0;
   // v8: 振幅减半, 周期更长 (更优雅)
   var dj = djMode.active;
-  var shake = clampRange(Number(fx.cinemaShake) || 0, 0, 1.8);
+  var shake = (window.NotBlindStageFx ? NotBlindStageFx.cameraShake(fx) : clampRange(Number(fx.cinemaShake) || 0, 0, 1.8));
   var beatDamp = (orbit.focus.active ? (dj ? 0.66 : 0.55) : (dj ? 1.12 : 1.0)) * shake;
   var idleDamp = damp * (dj ? 0.72 : 1.0) * shake;
   orbit.cineTheta = Math.sin(cinemaT * 0.08) * 0.012 * idleDamp + beatCam.thetaKick * beatDamp;

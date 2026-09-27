@@ -99,9 +99,23 @@ const APP_PACKAGE_INFO = (() => {
     return {};
   }
 })();
-const APP_METADATA = APP_PACKAGE_INFO.mineradio || {};
-const APP_NAME = process.env.MINERADIO_RUNTIME_NAME || APP_METADATA.runtimeName || APP_PACKAGE_INFO.productName || 'Mineradio';
-const APP_USER_MODEL_ID = process.env.MINERADIO_APP_USER_MODEL_ID || APP_METADATA.appUserModelId || (APP_PACKAGE_INFO.build && APP_PACKAGE_INFO.build.appId) || 'com.mineradio.desktop';
+// [改名] 软件已改名 Not Blind。package.json 里的配置块从 "mineradio" 改成了 "notblind"（旧名仍兼容）。
+const APP_METADATA = APP_PACKAGE_INFO.notblind || APP_PACKAGE_INFO.mineradio || {};
+// APP_NAME 用在数据目录、会话目录这些路径上，不带空格；界面上显示的名字用 APP_DISPLAY_NAME。
+const APP_NAME = process.env.MINERADIO_RUNTIME_NAME || APP_METADATA.runtimeName || APP_PACKAGE_INFO.productName || 'NotBlind';
+const APP_DISPLAY_NAME = APP_METADATA.displayName || APP_NAME;
+// 改名前用过的数据目录名：第一次以新名字启动时，从这里把设置和登录状态搬过来。
+const LEGACY_APP_NAMES = (Array.isArray(APP_METADATA.legacyRuntimeNames) ? APP_METADATA.legacyRuntimeNames : ['Mineradio'])
+  .map(name => String(name || '').trim())
+  .filter(name => name && name !== APP_NAME);
+const LEGACY_MIGRATION_SKIP_NAMES = new Set([
+  'cache', 'cache-fallback', 'native-helper-temp', 'crashpad', 'logs',
+  'code cache', 'gpucache', 'dawncache', 'dawngraphitecache', 'dawnwebgpucache',
+  'grshadercache', 'shadercache', 'graphitedawncache', 'component_crx_cache',
+  'extensions_crx_cache', 'singletonlock', 'singletoncookie', 'singletonsocket', 'lockfile',
+]);
+// 源码版（没打包）用单独的 .dev 身份：否则任务栏会去套已安装版快捷方式的图标（旧图标或白纸），而不是窗口自己的新图标
+const APP_USER_MODEL_ID = (process.env.MINERADIO_APP_USER_MODEL_ID || APP_METADATA.appUserModelId || (APP_PACKAGE_INFO.build && APP_PACKAGE_INFO.build.appId) || 'com.notblind.desktop') + (app.isPackaged || process.env.MINERADIO_APP_USER_MODEL_ID ? '' : '.dev');
 const APP_ICON_ICO = path.join(__dirname, '..', 'build', 'icon.ico');
 const CURRENT_FX_AUTOSAVE_FILE = 'current-fx-autosave.json';
 const CURRENT_FX_AUTOSAVE_MAX_BYTES = 12 * 1024 * 1024;
@@ -145,8 +159,20 @@ const STARTUP_QA_USER_DATA_PATH = (() => {
   return path.resolve(value);
 })();
 const STABLE_USER_DATA_PATH = STARTUP_QA_USER_DATA_PATH || path.join(app.getPath('appData'), APP_NAME);
+const LEGACY_DATA_MIGRATION = STARTUP_QA_USER_DATA_PATH ? null : migrateLegacyAppData();
 fs.mkdirSync(STABLE_USER_DATA_PATH, { recursive: true });
 app.setPath('userData', STABLE_USER_DATA_PATH);
+// [二改] 反馈：软件里填写 → 发到作者服务器（desktop/feedback.js；地址在 package.json 的 notblind.feedback）
+try {
+  require('./feedback').installFeedback({
+    app, ipcMain,
+    getMainWindow: () => mainWindow,
+    config: APP_METADATA.feedback,
+    userDataPath: STABLE_USER_DATA_PATH,
+  });
+} catch (error) {
+  console.warn('[Feedback] init failed:', error && error.message || error);
+}
 const INITIAL_CACHE_SETTINGS = ensureCacheDirectories(readCacheSettings());
 const loginEasterEggGate = new LoginEasterEggGate({
   userDataPath: STABLE_USER_DATA_PATH,
@@ -158,8 +184,14 @@ const loginEasterEggGate = new LoginEasterEggGate({
 });
 const NATIVE_HELPER_TEMP_PATH = INITIAL_CACHE_SETTINGS.nativePath;
 fs.mkdirSync(NATIVE_HELPER_TEMP_PATH, { recursive: true });
-process.env.MINERADIO_NATIVE_TEMP_DIR = NATIVE_HELPER_TEMP_PATH;
-systemMemory.setNativeTempPath(NATIVE_HELPER_TEMP_PATH);
+// [二改][安全] 会被 PowerShell 执行的临时脚本（内存清理、含提权执行的那份、图标层脚本、Add-Type 编译产物）
+// 只放在当前用户私有的目录里。原来跟着可自选的缓存根目录走（默认 D:\MineradioCache），
+// 数据盘根目录通常允许本机其它账户改写子文件，脚本落盘到执行之间可能被替换。
+// Wallpaper Engine 的大体积缓存仍留在缓存根目录。
+const NATIVE_SCRIPT_TEMP_PATH = path.join(STABLE_USER_DATA_PATH, 'native-helper-temp');
+fs.mkdirSync(NATIVE_SCRIPT_TEMP_PATH, { recursive: true });
+process.env.MINERADIO_NATIVE_TEMP_DIR = NATIVE_SCRIPT_TEMP_PATH;
+systemMemory.setNativeTempPath(NATIVE_SCRIPT_TEMP_PATH);
 const localMusicLibrary = new LocalMusicLibrary({ userDataPath: STABLE_USER_DATA_PATH });
 const builtInPlaylistLibrary = new BuiltInPlaylistLibrary({ userDataPath: STABLE_USER_DATA_PATH });
 const localMusicImportCapabilities = new Map();
@@ -174,7 +206,7 @@ const fullDesktopModeRuntime = new FullDesktopModeRuntime({
   screen,
   platform: process.platform,
   execFileImpl: execFile,
-  nativeTempPath: NATIVE_HELPER_TEMP_PATH,
+  nativeTempPath: NATIVE_SCRIPT_TEMP_PATH,
   beforePassive: ({ win, reason }) => prepareWallpaperEngineProjectPreviewBeforeDesktopEmbedding(win, reason),
   requestReconcile: (reason) => reconcileFullDesktopMode(reason),
   onStatus: (status) => broadcastDesktopWallpaperStatus(status),
@@ -284,8 +316,90 @@ function cacheSettingsConfigPath() {
 function defaultCacheRootPath() {
   const dDrive = 'D:\\';
   return fs.existsSync(dDrive)
-    ? path.join(dDrive, 'MineradioCache')
+    ? path.join(dDrive, 'NotBlindCache')
     : path.join(app.getPath('userData'), 'cache');
+}
+
+// ---------------------------------------------------------------------------
+// [改名] 旧版数据搬家：Mineradio → Not Blind
+// 只在新数据目录还不存在、旧目录存在时跑一次。复制（不移动），旧版照样能用。
+// 搬：%APPDATA%\Mineradio 里的设置、登录 cookie、本地曲库索引、内置歌单……
+//     以及缓存根目录下 chromium\Mineradio 里的浏览器存储（主页主题、界面设置、各平台登录窗口）。
+// 不搬：各种可重建的缓存（HTTP 缓存、GPU 缓存、歌词/节拍缓存、临时脚本）。
+// 某个文件被占用（旧版还开着）就跳过它，不影响启动。
+// ---------------------------------------------------------------------------
+
+function copyTreeForMigration(from, to, stats) {
+  let entries = [];
+  try { entries = fs.readdirSync(from, { withFileTypes: true }); } catch (_) { return; }
+  try { fs.mkdirSync(to, { recursive: true }); } catch (_) { return; }
+  for (const entry of entries) {
+    if (LEGACY_MIGRATION_SKIP_NAMES.has(String(entry.name).toLowerCase())) continue;
+    const src = path.join(from, entry.name);
+    const dst = path.join(to, entry.name);
+    try {
+      if (entry.isDirectory()) copyTreeForMigration(src, dst, stats);
+      else if (entry.isFile()) { fs.copyFileSync(src, dst); stats.files += 1; }
+    } catch (_) {
+      stats.skipped += 1;
+    }
+  }
+}
+
+function sameCachePath(a, b) {
+  try { return path.resolve(String(a || '')).toLowerCase() === path.resolve(String(b || '')).toLowerCase(); } catch (_) { return false; }
+}
+
+// 第一版搬家只在"新数据目录还不存在"时才跑，但 Electron 在跑到这里之前就可能已经建好了
+// %APPDATA%\NotBlind（崩溃报告目录等），结果一次都没搬，登录全丢、歌放不了。
+// 现在改成看标记文件：没有 migrated-from-legacy.json 就搬（只搬一次），旧版里有的文件覆盖新目录里的同名文件。
+// 新会话目录如果已经被第一次启动建出来了，先整个挪到旁边（…-before-migration-时间），再把旧会话复制过去。
+function migrateLegacyAppData() {
+  const result = { migrated: false, from: '', files: 0, skipped: 0, sessionFrom: '', sessionTo: '', sessionMovedAside: '' };
+  const marker = path.join(STABLE_USER_DATA_PATH, 'migrated-from-legacy.json');
+  try {
+    if (fs.existsSync(marker)) return result;
+    const appData = app.getPath('appData');
+    const legacyName = LEGACY_APP_NAMES.find(name => fs.existsSync(path.join(appData, name, CACHE_SETTINGS_FILE))
+      || fs.existsSync(path.join(appData, name, '.cookie'))
+      || fs.existsSync(path.join(appData, name, '.qq-cookie')));
+    if (!legacyName) return result;
+    const legacyUserData = path.join(appData, legacyName);
+    const stats = { files: 0, skipped: 0 };
+    copyTreeForMigration(legacyUserData, STABLE_USER_DATA_PATH, stats);
+
+    // 缓存根目录：旧版用的是默认位置（D:\MineradioCache）就换成新的默认位置；用户自选过的目录保持不变。
+    const settingsFile = path.join(STABLE_USER_DATA_PATH, CACHE_SETTINGS_FILE);
+    let saved = null;
+    try { saved = JSON.parse(fs.readFileSync(path.join(legacyUserData, CACHE_SETTINGS_FILE), 'utf8')); } catch (_) { saved = null; }
+    const dDriveLegacyRoot = fs.existsSync('D:\\') ? path.join('D:\\', `${legacyName}Cache`) : path.join(legacyUserData, 'cache');
+    const legacyRoot = saved && saved.rootPath ? String(saved.rootPath) : dDriveLegacyRoot;
+    const newRoot = sameCachePath(legacyRoot, dDriveLegacyRoot) ? defaultCacheRootPath() : legacyRoot;
+    if (saved) {
+      try { fs.writeFileSync(settingsFile, JSON.stringify(Object.assign({}, saved, { rootPath: newRoot }), null, 2), 'utf8'); } catch (_) {}
+    }
+    const sessionFrom = path.join(legacyRoot, 'chromium', legacyName);
+    const sessionTo = path.join(newRoot, 'chromium', APP_NAME);
+    if (fs.existsSync(sessionFrom)) {
+      if (fs.existsSync(sessionTo)) {
+        const aside = `${sessionTo}-before-migration-${Date.now()}`;
+        try { fs.renameSync(sessionTo, aside); result.sessionMovedAside = aside; } catch (error) {
+          console.warn('[Rename] could not move fresh session aside:', error && error.message);
+        }
+      }
+      if (!fs.existsSync(sessionTo)) copyTreeForMigration(sessionFrom, sessionTo, stats);
+    }
+
+    Object.assign(result, { migrated: true, from: legacyUserData, files: stats.files, skipped: stats.skipped, sessionFrom, sessionTo });
+    try {
+      fs.mkdirSync(STABLE_USER_DATA_PATH, { recursive: true });
+      fs.writeFileSync(marker, JSON.stringify(Object.assign({ at: new Date().toISOString() }, result), null, 2), 'utf8');
+    } catch (_) {}
+    console.log(`[Rename] migrated ${stats.files} files from ${legacyUserData} (skipped ${stats.skipped})`);
+  } catch (error) {
+    console.warn('[Rename] legacy data migration failed:', error && error.message);
+  }
+  return result;
 }
 
 function normalizeCacheRootPath(value) {
@@ -497,6 +611,42 @@ function appendChromiumSwitch(name, value) {
 for (const [name, value] of CHROMIUM_SAFE_PERFORMANCE_SWITCHES) appendChromiumSwitch(name, value);
 for (const [name, value, envName] of CHROMIUM_OPT_IN_PERFORMANCE_SWITCHES) {
   if (process.env[envName] === '1') appendChromiumSwitch(name, value);
+}
+
+// [二改][修黑屏] 桌面背景模式下"暂停一会儿就黑屏"的根源在 Chromium 的窗口遮挡判定：
+// Chromium 在 Windows 上会判断一个窗口是否被别的窗口完全盖住 / 显示器是否熄屏 / 是否锁屏，
+// 一旦判定为"被遮挡"，就把这个窗口的合成器节流、过一会儿再把画面资源释放掉——窗口就黑了。
+// 壁纸窗口挂在 Explorer 图标层底下（子窗口），Chromium 枚举顶层窗口时根本看不到它，
+// 所以它永远等不到"重新露出来"的判定，黑了就一直黑；只有播放中的持续重绘能勉强掩盖。
+// 用过一次桌面背景模式之后，后续启动直接关掉这套判定（只影响 Windows；
+// 环境变量 MINERADIO_KEEP_BACKGROUND_RENDERING=1 强制开、=0 强制关）。
+// 本次启动第一次进桌面模式时开关来不及生效，由下面的黑屏看门狗兜底。
+const DESKTOP_MODE_FLAGS_FILE = path.join(STABLE_USER_DATA_PATH, 'desktop-mode-flags.json');
+function readDesktopModeFlags() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(DESKTOP_MODE_FLAGS_FILE, 'utf8'));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+function markDesktopModeUsed() {
+  try {
+    const flags = readDesktopModeFlags();
+    if (flags.usedFullDesktopMode === true) return;
+    flags.usedFullDesktopMode = true;
+    flags.updatedAt = new Date().toISOString();
+    fs.writeFileSync(DESKTOP_MODE_FLAGS_FILE, JSON.stringify(flags, null, 2));
+  } catch (error) {
+    console.warn('[FullDesktopMode] flags save failed:', error && error.message || error);
+  }
+}
+const DESKTOP_COMPOSITOR_KEEP_ALIVE = process.platform === 'win32'
+  && process.env.MINERADIO_KEEP_BACKGROUND_RENDERING !== '0'
+  && (process.env.MINERADIO_KEEP_BACKGROUND_RENDERING === '1' || readDesktopModeFlags().usedFullDesktopMode === true);
+if (DESKTOP_COMPOSITOR_KEEP_ALIVE) {
+  appendChromiumSwitch('disable-features', 'CalculateNativeWinOcclusion');
+  appendChromiumSwitch('disable-backgrounding-occluded-windows');
 }
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -811,6 +961,10 @@ function isTrustedWallpaperEngineIpc(event) {
 }
 
 function broadcastDesktopWallpaperStatus(status) {
+  // [二改][稳定性] 进 / 出桌面模式记进稳定性日志（窗口已经关掉的时候也要记）
+  if (mainWindow) {
+    try { stabilityTrackDesktopStatus(status || fullDesktopModeRuntime.getStatus('broadcast-stability')); } catch (_) { }
+  }
   if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.webContents || mainWindow.webContents.isDestroyed()) return;
   mainWindow.webContents.send('mineradio-wallpaper-runtime-state', {
     ...(status || fullDesktopModeRuntime.getStatus('broadcast')),
@@ -819,11 +973,12 @@ function broadcastDesktopWallpaperStatus(status) {
   });
   if (tray) createOrUpdateTray();
   syncDesktopLockCursorWatcher();
+  syncDesktopBlackScreenWatchdog(status || null);
 }
 
 // [二改] 锁定软件操作后，窗口不再收鼠标，原版靠"转发的鼠标移动"发现光标到了右上角，
 // 但窗口挂在 Explorer 底下时这些转发收不到，于是右上角的解锁永远点不到。
-// 这里改由主进程直接轮询系统光标位置：光标进右上角那块，就临时把鼠标还给 Mineradio。
+// 这里改由主进程直接轮询系统光标位置：光标进右上角那块，就临时把鼠标还给 Not Blind。
 const DESKTOP_LOCK_ZONE = { width: 340, height: 160 };
 let desktopLockCursorTimer = null;
 let desktopLockCursorInside = false;
@@ -1476,6 +1631,7 @@ function syncWallpaperEngineWithFullDesktopMode(win, reason = 'desktop-state') {
     resumeWallpaperEngineForVisibleHost(win, `full-desktop-${reason}`);
   }
   if (tray) createOrUpdateTray();
+  applyMainWindowTaskbarIdentity(win, `desktop-${reason}`);
   // [二改] 每次桌面模式切换落定后，让 Chromium 整窗重画一次，避免宿主换了之后停在旧帧。
   try { win.webContents.invalidate(); } catch (_) { }
   sendWindowState(win);
@@ -1565,6 +1721,7 @@ async function desktopDebugSnapshot(label, extra = {}) {
       desktop: { enabled: status.enabled, interactive: status.interactive, phase: status.phase, lastError: status.lastError, iconLayerMode: status.iconLayerMode, desktopIconsVisible: status.desktopIconsVisible, softwareLocked: status.softwareInteractionLocked },
       nativeAck: fullDesktopModeRuntime.lastNativeAck || null,
       wallpaperEngine: (() => { try { const w = wallpaperEngineRuntime.getStatus(); return w ? { active: w.active, captureMode: w.captureMode } : null; } catch (_) { return null; } })(),
+      blackWatchdog: { ...desktopBlackWatchdogStats, compositorKeepAlive: DESKTOP_COMPOSITOR_KEEP_ALIVE },
       renderer: probe,
     };
     const logFile = path.join(DESKTOP_DEBUG_DIR, 'log.jsonl');
@@ -1589,9 +1746,469 @@ function scheduleDesktopDebug(label, delays = [300], extra = {}) {
   }
 }
 
+// [二改][修黑屏] 桌面背景黑屏看门狗。
+// 桌面模式期间每 12 秒看一眼：屏幕上（去掉任务栏那一条）是不是几乎全黑，
+// 而 Not Blind 自己画出来的那一帧并不黑——两者同时成立，就是"画面还在、只是没画到屏幕上"，
+// 即 Chromium 把壁纸窗口的合成器停掉了。处理分两级：
+//   第一次：让 Chromium 走一遍"隐藏→显示"并整窗重画（便宜、无感）；
+//   连续第二次：把窗口从图标层摘下来重新挂一次（reconcile），一分钟内只做一次。
+// 显示器唤醒、解锁后也立刻查一次，这两种情况最容易触发。
+// 画面本身就很暗的主题（比如深色星空）会被判成"内容本来就黑"，不会误触发。
+// [二改][流畅度] 每次检查都要抓一次整屏（desktopCapturer 先按原分辨率截屏再缩小），
+// 原来 12 秒一次，在核显 / 4K 屏上会让画面每 12 秒顿一下。遮挡判定开关已经生效时（第二次启动起）
+// 黑屏的根源已经去掉，看门狗只是保险，90 秒查一次；开关还没生效的第一次启动 30 秒一次。
+// 唤醒、解锁、显卡进程重启这些最容易黑屏的时刻另外会立刻查。
+const DESKTOP_BLACK_WATCHDOG_INTERVAL_MS = DESKTOP_COMPOSITOR_KEEP_ALIVE ? 90000 : 30000;
+const DESKTOP_BLACK_WATCHDOG_SAMPLE = { width: 96, height: 54 };
+const DESKTOP_BLACK_WATCHDOG_SCREEN_DARK = 0.97;
+const DESKTOP_BLACK_WATCHDOG_PAGE_DARK = 0.6;
+const DESKTOP_BLACK_WATCHDOG_PIXEL_DARK = 10;
+const DESKTOP_BLACK_WATCHDOG_RECONCILE_GAP_MS = 60000;
+let desktopBlackWatchdogTimer = null;
+let desktopBlackWatchdogBusy = false;
+let desktopBlackWatchdogStrikes = 0;
+let desktopBlackWatchdogLastReconcileAt = 0;
+let desktopBlackWatchdogLastLogAt = 0;
+let desktopBlackWatchdogStats = { checks: 0, detections: 0, kicks: 0, reconciles: 0, lastDetectionAt: '' };
+
+function nativeImageDarkFraction(image, rect) {
+  if (!image || image.isEmpty()) return null;
+  const size = image.getSize();
+  let bitmap;
+  try { bitmap = image.toBitmap(); } catch (_) { return null; }
+  if (!bitmap || bitmap.length < size.width * size.height * 4) return null;
+  const x0 = Math.max(0, Math.floor(rect ? rect.x : 0));
+  const y0 = Math.max(0, Math.floor(rect ? rect.y : 0));
+  const x1 = Math.min(size.width, Math.ceil(rect ? rect.x + rect.width : size.width));
+  const y1 = Math.min(size.height, Math.ceil(rect ? rect.y + rect.height : size.height));
+  if (x1 <= x0 || y1 <= y0) return null;
+  let dark = 0;
+  let total = 0;
+  for (let y = y0; y < y1; y += 1) {
+    let offset = (y * size.width + x0) * 4;
+    for (let x = x0; x < x1; x += 1, offset += 4) {
+      const b = bitmap[offset];
+      const g = bitmap[offset + 1];
+      const r = bitmap[offset + 2];
+      if (Math.max(r, g, b) < DESKTOP_BLACK_WATCHDOG_PIXEL_DARK) dark += 1;
+      total += 1;
+    }
+  }
+  return total > 0 ? dark / total : null;
+}
+
+async function sampleDesktopScreenDarkness(win) {
+  const display = screen.getDisplayMatching(win.getBounds());
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: DESKTOP_BLACK_WATCHDOG_SAMPLE,
+    fetchWindowIcons: false,
+  });
+  if (!Array.isArray(sources) || !sources.length) return null;
+  const source = sources.find((item) => String(item.display_id || '') === String(display.id)) || sources[0];
+  const image = source && source.thumbnail;
+  if (!image || image.isEmpty()) return null;
+  const size = image.getSize();
+  const db = display.bounds;
+  const wa = display.workArea || db;
+  // 只看工作区（去掉任务栏），再往里缩一圈，避开边缘的缩放误差
+  const rect = {
+    x: ((wa.x - db.x) / Math.max(1, db.width)) * size.width + 1,
+    y: ((wa.y - db.y) / Math.max(1, db.height)) * size.height + 1,
+    width: (wa.width / Math.max(1, db.width)) * size.width - 2,
+    height: (wa.height / Math.max(1, db.height)) * size.height - 2,
+  };
+  return { dark: nativeImageDarkFraction(image, rect), image, displayId: display.id };
+}
+
+async function sampleMainWindowPageDarkness(win) {
+  const image = await win.webContents.capturePage();
+  if (!image || image.isEmpty()) return null;
+  const size = image.getSize();
+  const small = size.width > DESKTOP_BLACK_WATCHDOG_SAMPLE.width
+    ? image.resize({ width: DESKTOP_BLACK_WATCHDOG_SAMPLE.width, quality: 'good' })
+    : image;
+  return { dark: nativeImageDarkFraction(small, null), image: small };
+}
+
+function kickMainWindowCompositor(win, reason = 'black-screen') {
+  if (!win || win.isDestroyed()) return;
+  desktopBlackWatchdogStats.kicks += 1;
+  // 切一次后台节流开关：Chromium 会把窗口按"刚显示出来"处理，重新接上合成器
+  try {
+    win.webContents.setBackgroundThrottling(true);
+    win.webContents.setBackgroundThrottling(false);
+  } catch (_) { }
+  try { win.webContents.invalidate(); } catch (_) { }
+  // 通知渲染端重新套用渲染功耗状态（会重设画布尺寸并重画）
+  try { sendWindowState(win); } catch (_) { }
+  console.warn('[FullDesktopMode] black-screen compositor kick:', reason);
+}
+
+function desktopBlackWatchdogLog(entry) {
+  if (!DESKTOP_DEBUG_ENABLED) return;
+  try {
+    fs.mkdirSync(DESKTOP_DEBUG_DIR, { recursive: true });
+    const logFile = path.join(DESKTOP_DEBUG_DIR, 'log.jsonl');
+    fs.appendFileSync(logFile, JSON.stringify({ at: new Date().toISOString(), label: 'black-screen', ...entry }) + '\n');
+    desktopDebugTrim(logFile);
+  } catch (_) { }
+}
+
+async function runDesktopBlackScreenCheck(reason = 'interval') {
+  if (desktopBlackWatchdogBusy || appQuitting) return null;
+  const win = mainWindow;
+  if (!win || win.isDestroyed() || !win.webContents || win.webContents.isDestroyed()) return null;
+  const status = fullDesktopModeRuntime.getStatus('black-watchdog');
+  if (status.enabled !== true || (status.phase !== 'interactive' && status.phase !== 'passive')) return null;
+  if (fullDesktopEnablePending || fullDesktopEscapeExitPending || fullDesktopModeHostVisibilityTransitionDepth > 0) return null;
+  if (win.isMinimized() || !win.isVisible()) return null;
+  desktopBlackWatchdogBusy = true;
+  try {
+    desktopBlackWatchdogStats.checks += 1;
+    const screenSample = await sampleDesktopScreenDarkness(win);
+    if (!screenSample || screenSample.dark == null) return null;
+    if (screenSample.dark < DESKTOP_BLACK_WATCHDOG_SCREEN_DARK) {
+      desktopBlackWatchdogStrikes = 0;
+      return { black: false, screenDark: screenSample.dark };
+    }
+    const pageSample = await sampleMainWindowPageDarkness(win);
+    if (!pageSample || pageSample.dark == null || pageSample.dark > DESKTOP_BLACK_WATCHDOG_PAGE_DARK) {
+      // 画面本来就黑（深色主题 / 还没画出来），不算故障
+      return { black: false, screenDark: screenSample.dark, pageDark: pageSample && pageSample.dark };
+    }
+    desktopBlackWatchdogStrikes += 1;
+    desktopBlackWatchdogStats.detections += 1;
+    desktopBlackWatchdogStats.lastDetectionAt = new Date().toISOString();
+    const now = Date.now();
+    const entry = {
+      reason,
+      strike: desktopBlackWatchdogStrikes,
+      screenDark: Number(screenSample.dark.toFixed(3)),
+      pageDark: Number(pageSample.dark.toFixed(3)),
+      compositorKeepAlive: DESKTOP_COMPOSITOR_KEEP_ALIVE,
+      bgThrottling: win.webContents.getBackgroundThrottling ? win.webContents.getBackgroundThrottling() : null,
+      phase: status.phase,
+      idleSeconds: (() => { try { return powerMonitor.getSystemIdleTime(); } catch (_) { return null; } })(),
+    };
+    console.warn('[FullDesktopMode] black screen detected:', JSON.stringify(entry));
+    if (now - desktopBlackWatchdogLastLogAt > 5000) {
+      desktopBlackWatchdogLastLogAt = now;
+      desktopBlackWatchdogLog(entry);
+      if (DESKTOP_DEBUG_ENABLED) {
+        try {
+          fs.writeFileSync(path.join(DESKTOP_DEBUG_DIR, 'black-screen-screen.png'), screenSample.image.toPNG());
+          fs.writeFileSync(path.join(DESKTOP_DEBUG_DIR, 'black-screen-page.png'), pageSample.image.toPNG());
+        } catch (_) { }
+      }
+    }
+    if (desktopBlackWatchdogStrikes === 1) {
+      kickMainWindowCompositor(win, `${reason}-strike-1`);
+    } else if (now - desktopBlackWatchdogLastReconcileAt > DESKTOP_BLACK_WATCHDOG_RECONCILE_GAP_MS) {
+      desktopBlackWatchdogLastReconcileAt = now;
+      desktopBlackWatchdogStats.reconciles += 1;
+      console.warn('[FullDesktopMode] black screen persists, re-attaching desktop window');
+      desktopBlackWatchdogLog({ ...entry, action: 'reconcile' });
+      reconcileFullDesktopMode('black-screen-recovery').catch((error) => {
+        console.warn('[FullDesktopMode] black-screen reconcile failed:', error && error.message || error);
+      });
+    } else {
+      kickMainWindowCompositor(win, `${reason}-strike-${desktopBlackWatchdogStrikes}`);
+    }
+    return { black: true, ...entry };
+  } catch (error) {
+    console.warn('[FullDesktopMode] black-screen check failed:', error && error.message || error);
+    return null;
+  } finally {
+    desktopBlackWatchdogBusy = false;
+  }
+}
+
+// ============================================================
+// [二改][修窗口隐身] 普通窗口模式下"闲置一会儿整个窗口看不见、但还能点"。
+// 和桌面模式的"暂停一会儿就黑屏"是同一个根：Chromium 把这个窗口的画面从屏幕合成里摘掉了，
+// 窗口本身还在（所以能点到），只是没有画面送上屏幕。桌面模式底色是黑的，所以表现为黑屏；
+// 普通窗口是透明窗口，画面没了就直接透明、看起来像消失了。
+// 原来的恢复手段（踢一下合成器、显卡进程重启后恢复、唤醒 / 解锁后恢复）都只在桌面模式下开，
+// 这里给普通窗口也补上：
+//   1. 闲置时每 15 秒让窗口整窗重画一帧，画面一直有新帧就不会被摘掉（一帧的开销可忽略）；
+//   2. 闲置后第一次动鼠标 / 按键、窗口获得焦点、从最小化恢复、系统唤醒 / 解锁、显卡进程重启，
+//      都立刻把合成器踢醒，让画面重新接回屏幕；
+//   3. 源码运行时把当时的窗口 / 界面状态和截图记到 _debug_desktop/（windowed-*），万一还复现可以查。
+// ============================================================
+const WINDOWED_KEEPALIVE_MS = 15000;
+const WINDOWED_KEEPALIVE_IDLE_SECONDS = 10;
+let windowedLastKickAt = 0;
+let windowedLastIdleSnapshotAt = 0;
+
+function windowedCompositorApplies(win) {
+  if (process.platform !== 'win32') return false;
+  if (!win || win.isDestroyed() || appQuitting || !startupCompleted) return false;
+  if (!win.webContents || win.webContents.isDestroyed()) return false;
+  if (win.isMinimized() || !win.isVisible()) return false;
+  if (fullDesktopEnablePending || fullDesktopModeHostVisibilityTransitionDepth > 0) return false;
+  try {
+    if (fullDesktopModeRuntime.getStatus('windowed-compositor').enabled === true) return false;
+  } catch (_) { return false; }
+  return true;
+}
+
+// strong=true 时再重建一次透明窗口的交换链（显卡进程重启 / 系统唤醒后用，宽度临时 +1 再还原）
+// [二改][任务栏图标] 源码版是用 electron.exe 跑的：任务栏按钮一旦被系统重建（从桌面背景模式回到窗口、
+// 从托盘 / 最小化恢复、资源管理器重启……），Windows 会退回去用 electron.exe 自己的图标（那个原子图标）。
+// 这里把"这个窗口属于谁、用哪个图标"写在窗口身上（AppUserModel 属性），每次窗口重新出现时再补一次图标。
+let mainWindowTaskbarIcon = null;
+function applyMainWindowTaskbarIdentity(win, reason = '') {
+  if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
+  try {
+    if (!mainWindowTaskbarIcon && fs.existsSync(APP_ICON_ICO)) {
+      const { nativeImage } = require('electron');
+      const img = nativeImage.createFromPath(APP_ICON_ICO);
+      if (img && !img.isEmpty()) mainWindowTaskbarIcon = img;
+    }
+    if (mainWindowTaskbarIcon) win.setIcon(mainWindowTaskbarIcon);
+  } catch (_) { }
+  try {
+    if (typeof win.setAppDetails === 'function' && fs.existsSync(APP_ICON_ICO)) {
+      const relaunch = app.isPackaged
+        ? `"${process.execPath}"`
+        : `"${process.execPath}" "${app.getAppPath()}"`;
+      win.setAppDetails({
+        appId: APP_USER_MODEL_ID,
+        appIconPath: APP_ICON_ICO,
+        appIconIndex: 0,
+        relaunchCommand: relaunch,
+        relaunchDisplayName: 'Not Blind',
+      });
+    }
+  } catch (error) {
+    if (reason === 'create') console.warn('[TaskbarIcon] setAppDetails failed:', error && error.message || error);
+  }
+}
+
+function kickWindowedCompositor(win, reason = 'windowed', strong = false) {
+  if (!windowedCompositorApplies(win)) return false;
+  const now = Date.now();
+  if (!strong && now - windowedLastKickAt < 1000) return false;
+  windowedLastKickAt = now;
+  let throttling = MAIN_WINDOW_BACKGROUND_THROTTLING;
+  try {
+    if (typeof win.webContents.getBackgroundThrottling === 'function') throttling = win.webContents.getBackgroundThrottling();
+  } catch (_) { }
+  // 切一次后台节流开关：Chromium 会把窗口按"刚显示出来"处理，重新接上合成器；最后还原成原来的值
+  try {
+    win.webContents.setBackgroundThrottling(!throttling);
+    win.webContents.setBackgroundThrottling(throttling);
+  } catch (_) { }
+  try { win.webContents.invalidate(); } catch (_) { }
+  if (strong) {
+    try { win.setBackgroundColor('#00000000'); } catch (_) { }
+    if (!win.isMaximized() && !win.isFullScreen()) {
+      try {
+        const b = win.getBounds();
+        win.setBounds({ x: b.x, y: b.y, width: b.width + 1, height: b.height }, false);
+        setTimeout(() => {
+          if (win.isDestroyed()) return;
+          try { win.setBounds(b, false); win.webContents.invalidate(); } catch (_) { }
+        }, 60);
+      } catch (_) { }
+    }
+  }
+  try { sendWindowState(win); } catch (_) { }
+  console.warn('[WindowedCompositor] kick:', reason, strong ? '(strong)' : '');
+  scheduleDesktopDebug(`windowed-kick-${String(reason).slice(0, 30)}`, [400], { reason, strong });
+  return true;
+}
+
+function scheduleWindowedCompositorKicks(reason, delays = [800, 3000], strong = true) {
+  for (const ms of delays) {
+    setTimeout(() => { kickWindowedCompositor(mainWindow, `${reason}+${ms}ms`, strong); }, ms);
+  }
+}
+
+// 闲置保活：只在用户一段时间没操作时整窗重画一帧；有操作时界面自己会不停出新帧，不用管
+const windowedKeepAliveTimer = setInterval(() => {
+  const win = mainWindow;
+  if (!windowedCompositorApplies(win)) return;
+  let idleSeconds = 0;
+  try { idleSeconds = powerMonitor.getSystemIdleTime(); } catch (_) { idleSeconds = 0; }
+  if (idleSeconds < WINDOWED_KEEPALIVE_IDLE_SECONDS) return;
+  try { win.webContents.invalidate(); } catch (_) { }
+  // 诊断：闲置期间每 2 分钟记一次状态（只在源码运行时）
+  const now = Date.now();
+  if (DESKTOP_DEBUG_ENABLED && now - windowedLastIdleSnapshotAt > 120000) {
+    windowedLastIdleSnapshotAt = now;
+    desktopDebugSnapshot('windowed-idle', { idleSeconds }).catch(() => {});
+  }
+}, WINDOWED_KEEPALIVE_MS);
+if (typeof windowedKeepAliveTimer.unref === 'function') windowedKeepAliveTimer.unref();
+
+ipcMain.on('notblind-window-wake', (event, reason) => {
+  const win = mainWindow;
+  if (!win || win.isDestroyed() || event.sender !== win.webContents) return;
+  kickWindowedCompositor(win, `renderer-${String(reason || 'wake').slice(0, 24)}`, false);
+});
+
+function syncDesktopBlackScreenWatchdog(status) {
+  const enabled = !!(status || fullDesktopModeRuntime.getStatus('black-watchdog-sync')).enabled && process.platform === 'win32';
+  if (enabled && !desktopBlackWatchdogTimer) {
+    desktopBlackWatchdogStrikes = 0;
+    desktopBlackWatchdogTimer = setInterval(() => {
+      runDesktopBlackScreenCheck('interval').catch(() => {});
+    }, DESKTOP_BLACK_WATCHDOG_INTERVAL_MS);
+    if (typeof desktopBlackWatchdogTimer.unref === 'function') desktopBlackWatchdogTimer.unref();
+  } else if (!enabled && desktopBlackWatchdogTimer) {
+    clearInterval(desktopBlackWatchdogTimer);
+    desktopBlackWatchdogTimer = null;
+    desktopBlackWatchdogStrikes = 0;
+  }
+}
+
+function scheduleDesktopBlackScreenChecks(reason, delays = [1500, 6000]) {
+  for (const ms of delays) {
+    setTimeout(() => { runDesktopBlackScreenCheck(`${reason}+${ms}ms`).catch(() => {}); }, ms);
+  }
+}
+
+// ============================================================
+// [二改][稳定性] 桌面模式稳定性日志（打包版也常开，文件很小）
+// 位置：%APPDATA%\NotBlind\desktop-stability.log（改名前的旧版在 %APPDATA%\Mineradio 下） —— 朋友那边"卡退"时让他把这个文件发过来。
+// 记录：进 / 出桌面模式（带原因）、界面进程崩溃 / 被杀（原因、退出码）、显卡进程崩溃、界面卡住 / 恢复、
+// 桌面模式期间每 5 分钟一次的内存快照（各进程占用）、显卡加速状态（有没有被降级成软件渲染）。
+// ============================================================
+const STABILITY_LOG_FILE = path.join(STABLE_USER_DATA_PATH, 'desktop-stability.log');
+const STABILITY_LOG_MAX_BYTES = 512 * 1024;
+const STABILITY_MEMORY_SAMPLE_MS = 5 * 60 * 1000;
+let stabilityDesktopEnabledAt = 0;
+let stabilityMemoryTimer = null;
+let stabilityUnresponsiveAt = 0;
+let stabilityGpuCrashTimes = [];
+let stabilityLastExitReason = '';
+
+function stabilityLog(event, detail = {}) {
+  try {
+    const line = JSON.stringify({
+      at: new Date().toISOString(),
+      event,
+      version: APP_PACKAGE_INFO.version || '',
+      desktopMinutes: stabilityDesktopEnabledAt ? Math.round((Date.now() - stabilityDesktopEnabledAt) / 6000) / 10 : 0,
+      ...detail,
+    }) + '\n';
+    fs.mkdirSync(path.dirname(STABILITY_LOG_FILE), { recursive: true });
+    try {
+      const size = fs.statSync(STABILITY_LOG_FILE).size;
+      if (size > STABILITY_LOG_MAX_BYTES) {
+        // 只留后半截
+        const buf = fs.readFileSync(STABILITY_LOG_FILE);
+        const tail = buf.subarray(Math.floor(buf.length / 2));
+        const cut = tail.indexOf(10);
+        fs.writeFileSync(STABILITY_LOG_FILE, cut >= 0 ? tail.subarray(cut + 1) : tail);
+      }
+    } catch (_) { }
+    fs.appendFileSync(STABILITY_LOG_FILE, line, 'utf8');
+  } catch (_) { }
+}
+
+function stabilityMemorySnapshot() {
+  const out = { totalMB: 0, byType: {} };
+  try {
+    for (const metric of app.getAppMetrics()) {
+      const mem = metric.memory || {};
+      const mb = Math.round((Number(mem.workingSetSize) || 0) / 1024);
+      const privateMb = Math.round((Number(mem.privateBytes) || 0) / 1024);
+      const key = metric.type === 'Utility' && metric.serviceName ? `Utility:${metric.serviceName}` : metric.type;
+      const slot = out.byType[key] || (out.byType[key] = { count: 0, workingSetMB: 0, privateMB: 0, cpu: 0 });
+      slot.count += 1;
+      slot.workingSetMB += mb;
+      slot.privateMB += privateMb;
+      slot.cpu = Math.round((slot.cpu + (Number(metric.cpu && metric.cpu.percentCPUUsage) || 0)) * 10) / 10;
+      out.totalMB += mb;
+    }
+  } catch (_) { }
+  try {
+    const sys = process.getSystemMemoryInfo();
+    out.systemFreeMB = Math.round((Number(sys.free) || 0) / 1024);
+    out.systemTotalMB = Math.round((Number(sys.total) || 0) / 1024);
+  } catch (_) { }
+  return out;
+}
+
+function stabilityGpuStatus() {
+  try {
+    const st = app.getGPUFeatureStatus() || {};
+    return { gpu_compositing: st.gpu_compositing, webgl: st.webgl, rasterization: st.rasterization, video_decode: st.video_decode };
+  } catch (_) {
+    return null;
+  }
+}
+
+function stabilityDesktopStatusBrief() {
+  try {
+    const st = fullDesktopModeRuntime.getStatus('stability-log');
+    return { enabled: st.enabled === true, phase: st.phase || '', interactive: st.interactive === true, locked: st.softwareInteractionLocked === true };
+  } catch (_) {
+    return null;
+  }
+}
+
+function stabilityTrackDesktopStatus(status) {
+  const enabled = !!(status && status.enabled === true);
+  if (enabled && !stabilityDesktopEnabledAt) {
+    stabilityDesktopEnabledAt = Date.now();
+    let display = null;
+    try {
+      const d = mainWindow && !mainWindow.isDestroyed() ? screen.getDisplayMatching(mainWindow.getBounds()) : screen.getPrimaryDisplay();
+      display = { width: d.size.width, height: d.size.height, scaleFactor: d.scaleFactor, refreshHz: d.displayFrequency || 0 };
+    } catch (_) { }
+    stabilityLog('desktop-enter', { display, gpu: stabilityGpuStatus(), memory: stabilityMemorySnapshot(), compositorKeepAlive: DESKTOP_COMPOSITOR_KEEP_ALIVE });
+    if (!stabilityMemoryTimer) {
+      stabilityMemoryTimer = setInterval(() => {
+        if (!stabilityDesktopEnabledAt) return;
+        stabilityLog('desktop-memory', { memory: stabilityMemorySnapshot(), desktop: stabilityDesktopStatusBrief() });
+      }, STABILITY_MEMORY_SAMPLE_MS);
+      if (typeof stabilityMemoryTimer.unref === 'function') stabilityMemoryTimer.unref();
+    }
+  } else if (!enabled && stabilityDesktopEnabledAt) {
+    stabilityLog('desktop-exit', { reason: stabilityLastExitReason || String(status && status.lastError || ''), lastError: String(status && status.lastError || ''), memory: stabilityMemorySnapshot() });
+    stabilityLastExitReason = '';
+    stabilityDesktopEnabledAt = 0;
+    if (stabilityMemoryTimer) { clearInterval(stabilityMemoryTimer); stabilityMemoryTimer = null; }
+  }
+}
+
+// 显卡进程崩溃：Chromium 会自己重启它，但挂在桌面图标层底下的壁纸窗口常常等不到重画，
+// 表现是整块黑掉 / 画面冻住。这里在重启后主动把合成器踢醒并复查黑屏。
+// 同时记录：短时间内反复崩溃，Chromium 会把显卡加速降级成软件渲染（整个软件立刻变得很卡）。
+function handleChildProcessGoneForStability(details = {}) {
+  const type = String(details.type || '');
+  const reason = String(details.reason || '');
+  if (reason === 'clean-exit') return;
+  const entry = { type, reason, exitCode: details.exitCode, name: details.name || details.serviceName || '', desktop: stabilityDesktopStatusBrief() };
+  if (type === 'GPU') {
+    const now = Date.now();
+    stabilityGpuCrashTimes = stabilityGpuCrashTimes.filter((at) => now - at < 10 * 60 * 1000);
+    stabilityGpuCrashTimes.push(now);
+    entry.gpuCrashesLast10Min = stabilityGpuCrashTimes.length;
+    const status = fullDesktopModeRuntime.getStatus('gpu-process-gone');
+    if (status.enabled === true) {
+      setTimeout(() => {
+        const win = mainWindow;
+        if (!win || win.isDestroyed()) return;
+        kickMainWindowCompositor(win, 'gpu-process-gone');
+        stabilityLog('gpu-restarted', { gpu: stabilityGpuStatus() });
+      }, 1200);
+      scheduleDesktopBlackScreenChecks('gpu-process-gone', [3000, 9000]);
+    } else {
+      // [二改][修窗口隐身] 普通窗口模式下显卡进程重启后，透明窗口常常一直是空的
+      scheduleWindowedCompositorKicks('gpu-process-gone', [1200, 4000], true);
+    }
+  }
+  stabilityLog('child-process-gone', entry);
+}
+
 // [二改] 退出桌面模式后，让 Windows 把桌面壁纸重新画一遍。
-// 诊断发现 Mineradio 自己画面正常，黑的是它后面的 Windows 桌面：图标层/壁纸层在
-// Mineradio 离开后没重画，停在黑色。这里：图标列表若被留成不透明黑底就还原成透明，
+// 诊断发现 Not Blind 自己画面正常，黑的是它后面的 Windows 桌面：图标层/壁纸层在
+// Not Blind 离开后没重画，停在黑色。这里：图标列表若被留成不透明黑底就还原成透明，
 // 把当前壁纸原样重设一次（不写注册表），再让桌面所有宿主窗口整体重画。
 const DESKTOP_REFRESH_SCRIPT = `
 $ErrorActionPreference = "Stop"
@@ -1727,7 +2344,13 @@ async function enableFullDesktopMode(win, options = {}) {
     if (enableOperation !== fullDesktopEnableOperation || fullDesktopEnablePending !== true) {
       return { ok: false, enabled: false, cancelled: true, error: 'FULL_DESKTOP_ENABLE_CANCELLED' };
     }
-    return await fullDesktopModeRuntime.enable(win, options);
+    const enabled = await fullDesktopModeRuntime.enable(win, options);
+    if (enabled && enabled.enabled === true) {
+      // [二改][修黑屏] 记下"用过桌面背景模式"，下次启动关闭 Chromium 的窗口遮挡判定
+      markDesktopModeUsed();
+      scheduleDesktopBlackScreenChecks('enter', [8000]);
+    }
+    return enabled;
   } finally {
     if (enableOperation === fullDesktopEnableOperation) fullDesktopEnablePending = false;
     await syncWallpaperEngineDesktopIconLayering('enable-settled').catch(() => false);
@@ -1782,6 +2405,7 @@ async function disableFullDesktopMode(reason = 'disabled') {
   // [二改] 只有真的在桌面模式里才做拼图 / 重画桌面 / 诊断；
   // 否则每次启动（页面加载会调一次关闭）都白跑一遍 PowerShell 重设壁纸
   const wasEnabled = fullDesktopModeRuntime.getStatus(`${reason}-was-enabled`).enabled === true;
+  if (wasEnabled) stabilityLastExitReason = String(reason || '');
   try {
     if (wasEnabled) await desktopDebugSnapshot('exit-before', { reason });
     const before = fullDesktopModeRuntime.getStatus(`${reason}-puzzle`);
@@ -1951,7 +2575,24 @@ function scheduleWallpaperEngineHostBoundsRestart(win, reason = 'bounds-changed'
   }, 260);
 }
 
+// [二改][安全] 登录窗口用的独立 partition 原来没配权限处理器，Electron 默认会自动批准
+// 摄像头 / 麦克风 / 定位 / 通知等所有请求；登录站点里的第三方页面不该拿到这些。
+function configureLoginPartitionPermissions() {
+  for (const partitionName of [NETEASE_LOGIN_PARTITION, QQ_LOGIN_PARTITION, KUGOU_LOGIN_PARTITION, SPOTIFY_LOGIN_PARTITION]) {
+    try {
+      const ses = session.fromPartition(partitionName);
+      if (!ses || ses._mineradioPermissionsConfigured) continue;
+      ses._mineradioPermissionsConfigured = true;
+      ses.setPermissionCheckHandler(() => false);
+      ses.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+    } catch (error) {
+      console.warn('[Permissions] login partition setup failed:', partitionName, error && error.message || error);
+    }
+  }
+}
+
 function configureLocalAppPermissions() {
+  configureLoginPartitionPermissions();
   const ses = session.defaultSession;
   if (!ses || ses._mineradioPermissionsConfigured) return;
   ses._mineradioPermissionsConfigured = true;
@@ -2415,7 +3056,7 @@ function createOrUpdateTray() {
   if (!tray) {
     try {
       tray = new Tray(APP_ICON_ICO);
-      tray.setToolTip(APP_NAME);
+      tray.setToolTip(APP_DISPLAY_NAME);
       tray.on('click', () => focusMainWindow());
       tray.on('double-click', () => focusMainWindow());
     } catch (e) {
@@ -2426,7 +3067,7 @@ function createOrUpdateTray() {
   }
   const desktopMode = fullDesktopModeRuntime.getStatus('tray-menu');
   const menu = Menu.buildFromTemplate([
-    { label: `显示 ${APP_NAME}`, click: () => focusMainWindow() },
+    { label: `显示 ${APP_DISPLAY_NAME}`, click: () => focusMainWindow() },
     {
       label: '解锁软件操作',
       visible: desktopMode.enabled === true && desktopMode.softwareInteractionLocked === true,
@@ -2592,8 +3233,8 @@ function reportWindowCreationFailure(context, error) {
     startupErrorReported = true;
     try {
       // Keep this literal visible for startup dialog regression checks:
-      // dialog.showErrorBox('Mineradio 启动失败'
-      dialog.showErrorBox(`Mineradio 启动失败 (${code})`, buildStartupErrorMessage(context, code, logInfo, error));
+      // dialog.showErrorBox('Not Blind 启动失败'
+      dialog.showErrorBox(`Not Blind 启动失败 (${code})`, buildStartupErrorMessage(context, code, logInfo, error));
     } catch (_) {}
   }
   if (!startupCompleted) {
@@ -2636,13 +3277,13 @@ function shouldEnsureDesktopShortcut() {
 function ensureDesktopShortcut() {
   if (!shouldEnsureDesktopShortcut()) return { ok: false, skipped: true };
   try {
-    const shortcutPath = path.join(app.getPath('desktop'), `${APP_NAME}.lnk`);
+    const shortcutPath = path.join(app.getPath('desktop'), `${APP_DISPLAY_NAME}.lnk`);
     const target = process.execPath;
     const shortcut = {
       target,
       cwd: path.dirname(target),
       args: '',
-      description: `${APP_NAME} desktop music player`,
+      description: `${APP_DISPLAY_NAME} desktop music player`,
       icon: fs.existsSync(APP_ICON_ICO) ? APP_ICON_ICO : target,
       iconIndex: 0,
       appUserModelId: APP_USER_MODEL_ID,
@@ -2699,6 +3340,45 @@ function qqCookieHasPlaybackLogin(cookieText) {
   const uin = String(rawUin).replace(/\D/g, '');
   const playbackKey = obj.qm_keyst || obj.qqmusic_key || obj.music_key || obj.wxskey || '';
   return !!(uin && playbackKey);
+}
+
+// [二改][安全] 只允许 http/https 交给系统浏览器。file:、ms-*:、search-ms: 这类协议
+// 会直接拉起本机的协议处理程序，网页内容一旦能触发 window.open 就等于任意执行。
+function openExternalSafely(targetUrl, allowHttp = true) {
+  try {
+    const parsed = new URL(String(targetUrl || ''));
+    if (parsed.protocol !== 'https:' && !(allowHttp && parsed.protocol === 'http:')) return false;
+    if (parsed.username || parsed.password) return false;
+    shell.openExternal(parsed.href).catch(() => {});
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function hostnameMatchesDomains(hostname, domains) {
+  const host = String(hostname || '').toLowerCase();
+  return domains.some((domain) => host === domain || host.endsWith('.' + domain));
+}
+
+function isTrustedNeteaseLoginUrl(targetUrl) {
+  try {
+    const parsed = new URL(String(targetUrl || ''));
+    if (parsed.protocol !== 'https:') return false;
+    return hostnameMatchesDomains(parsed.hostname, ['163.com', 'netease.com', '126.net', '127.net', 'qq.com', 'weixin.qq.com', 'weibo.com', 'sina.com.cn', 'sina.cn']);
+  } catch (_) {
+    return false;
+  }
+}
+
+function isTrustedKugouLoginUrl(targetUrl) {
+  try {
+    const parsed = new URL(String(targetUrl || ''));
+    if (parsed.protocol !== 'https:') return false;
+    return hostnameMatchesDomains(parsed.hostname, ['kugou.com', 'kugou.net', 'kugou.tv', 'kgimg.com', 'kgidc.cn', 'qq.com', 'weixin.qq.com', 'weibo.com', 'sina.com.cn', 'sina.cn']);
+  } catch (_) {
+    return false;
+  }
 }
 
 function isTrustedQQLoginUrl(targetUrl) {
@@ -2889,12 +3569,18 @@ async function openNeteaseMusicLoginWindow(owner) {
     };
 
     loginWindow.webContents.setWindowOpenHandler(({ url }) => {
-      if (/^https?:\/\/([^/]+\.)?(163|music\.163|netease)\.com/i.test(url)) {
+      // [二改][安全] 用 URL 解析判断域名（原正则会被 evil.example?x.163.com 之类绕过），只放 https
+      if (isTrustedNeteaseLoginUrl(url)) {
         loginWindow.loadURL(url).catch((e) => console.warn('Netease login popup navigation failed:', e.message));
-      } else if (/^https?:\/\//i.test(url)) {
-        shell.openExternal(url).catch(() => {});
+      } else {
+        openExternalSafely(url, false);
       }
       return { action: 'deny' };
+    });
+    loginWindow.webContents.on('will-navigate', (event, url) => {
+      if (isTrustedNeteaseLoginUrl(url)) return;
+      event.preventDefault();
+      openExternalSafely(url, false);
     });
 
     loginWindow.webContents.on('did-finish-load', () => {
@@ -3112,10 +3798,13 @@ async function openQQMusicLoginWindow(owner, options) {
             },
           };
         }
-        if (/^https?:\/\//i.test(String(url || ''))) {
-          shell.openExternal(url).catch(() => {});
-        }
+        openExternalSafely(url, false);
         return { action: 'deny' };
+      });
+      win.webContents.on('will-navigate', (event, url) => {
+        if (isTrustedQQLoginUrl(url)) return;
+        event.preventDefault();
+        openExternalSafely(url, false);
       });
       win.webContents.on('did-create-window', (child) => {
         popupWindows.add(child);
@@ -3237,12 +3926,19 @@ async function openKugouMusicLoginWindow(owner, options) {
     };
 
     loginWindow.webContents.setWindowOpenHandler(({ url }) => {
-      if (/^https?:\/\//i.test(url)) {
+      // [二改][安全] 登录窗口只加载酷狗及其登录合作方的 https 页面；其余 https 交给系统浏览器，
+      // 非 http(s) 协议一律丢弃（原来会直接 openExternal，任何协议都能拉起）
+      if (isTrustedKugouLoginUrl(url)) {
         loginWindow.loadURL(url).catch((e) => console.warn('Kugou login popup navigation failed:', e.message));
       } else {
-        shell.openExternal(url).catch(() => {});
+        openExternalSafely(url, false);
       }
       return { action: 'deny' };
+    });
+    loginWindow.webContents.on('will-navigate', (event, url) => {
+      if (isTrustedKugouLoginUrl(url)) return;
+      event.preventDefault();
+      openExternalSafely(url, false);
     });
 
     loginWindow.webContents.on('did-finish-load', () => {
@@ -3394,7 +4090,7 @@ function startSpotifyOAuthCallbackServer(redirectUri, onCallback) {
         const result = await onCallback(current);
         const ok = !!(result && result.ok);
         res.writeHead(ok ? 200 : 500, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(spotifyOAuthResultHtml(ok, (result && (result.message || result.error)) || (ok ? '可以回到 Mineradio。' : '请回到 Mineradio 重新尝试。')));
+        res.end(spotifyOAuthResultHtml(ok, (result && (result.message || result.error)) || (ok ? '可以回到 Not Blind。' : '请回到 Not Blind 重新尝试。')));
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(spotifyOAuthResultHtml(false, e && e.message || 'SPOTIFY_OAUTH_CALLBACK_FAILED'));
@@ -4063,12 +4759,13 @@ function createDesktopLyricsWindow(payload = {}) {
     focusable: false,
     skipTaskbar: true,
     show: false,
-    title: 'Mineradio Desktop Lyrics',
+    title: 'Not Blind Desktop Lyrics',
     webPreferences: {
       preload: path.join(__dirname, 'overlay-preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      // [二改][安全] overlay-preload 只用到 ipcRenderer，可以开沙箱
+      sandbox: true,
       backgroundThrottling: false,
     },
   });
@@ -4087,6 +4784,12 @@ function createDesktopLyricsWindow(payload = {}) {
     sendDesktopLyricsState();
   });
   desktopLyricsWindow.webContents.once('did-finish-load', sendDesktopLyricsState);
+  // [二改][安全] 歌词悬浮窗只允许停留在自己的页面上
+  desktopLyricsWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  desktopLyricsWindow.webContents.on('will-navigate', (event, url) => {
+    if (String(url || '') === overlayUrl('desktop-lyrics.html')) return;
+    event.preventDefault();
+  });
   desktopLyricsWindow.on('closed', () => {
     desktopLyricsWindow = null;
     desktopLyricsMouseIgnored = null;
@@ -4134,7 +4837,7 @@ public static class MineradioShellMessage {
   execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
     windowsHide: true,
     timeout: 5000,
-    env: { ...process.env, TEMP: NATIVE_HELPER_TEMP_PATH, TMP: NATIVE_HELPER_TEMP_PATH },
+    env: { ...process.env, TEMP: NATIVE_SCRIPT_TEMP_PATH, TMP: NATIVE_SCRIPT_TEMP_PATH },
   }, (error, stdout) => {
     win.__mineradioTaskbarCreatedHookPending = false;
     if (error || win.isDestroyed()) return;
@@ -4207,7 +4910,7 @@ function positionWallpaperWindow(reason = 'display-change') {
 }
 
 async function createWallpaperWindow(payload = {}) {
-  // [二改] 进入前先拍下当前画面、把 Mineradio 藏起来，挂到桌面后再一片片拼出来
+  // [二改] 进入前先拍下当前画面、把 Not Blind 藏起来，挂到桌面后再一片片拼出来
   const wasEnabled = fullDesktopModeRuntime.getStatus('puzzle-before-enable').enabled === true;
   let puzzlePrepared = false;
   if (!wasEnabled) {
@@ -4408,7 +5111,8 @@ ipcMain.handle('mineradio-memory-get-snapshot', async () => {
   }
 });
 
-ipcMain.handle('mineradio-memory-configure-auto', async (_event, payload = {}) => {
+ipcMain.handle('mineradio-memory-configure-auto', async (event, payload = {}) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'MEMORY_AUTO_UNTRUSTED_SENDER' };
   memoryAutoState = normalizeMemoryAutoState(payload);
   syncMemoryAutoTimer();
   if (memoryAutoState.enabled && payload.runNow === true && !isMainWindowForegroundVisible()) {
@@ -4426,14 +5130,15 @@ ipcMain.handle('mineradio-memory-trim-app', async (_event, payload = {}) => {
   return trimAppMemoryNow(payload.reason || 'renderer');
 });
 
-ipcMain.handle('mineradio-memory-purge-system', async (_event, payload = {}) => {
+ipcMain.handle('mineradio-memory-purge-system', async (event, payload = {}) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'MEMORY_PURGE_UNTRUSTED_SENDER' };
   const mask = systemMemory.normalizeMask(payload && payload.mask);
   const autoElevate = payload && payload.autoElevate === true;
   try {
     if (isMainWindowForegroundVisible()) {
       return {
         ok: true,
-        result: { ok: false, skipped: true, reason: 'foreground-visible', message: 'System memory purge is skipped while Mineradio is visible.' },
+        result: { ok: false, skipped: true, reason: 'foreground-visible', message: 'System memory purge is skipped while Not Blind is visible.' },
         snapshot: systemMemory.getMemorySnapshot(),
         elevated: false,
         systemPurgeAvailable: systemMemory.SYSTEM_PURGE_AVAILABLE === true,
@@ -4472,7 +5177,7 @@ ipcMain.handle('mineradio-cache-get-settings', async () => {
 
 ipcMain.handle('mineradio-cache-choose-directory', async () => {
   const result = await dialog.showOpenDialog({
-    title: '选择 Mineradio 缓存目录',
+    title: '选择 Not Blind 缓存目录',
     defaultPath: cacheSettings.rootPath,
     properties: ['openDirectory', 'createDirectory'],
   });
@@ -4480,9 +5185,15 @@ ipcMain.handle('mineradio-cache-choose-directory', async () => {
   return { ok: true, canceled: false, rootPath: normalizeCacheRootPath(result.filePaths[0]) };
 });
 
-ipcMain.handle('mineradio-cache-set-settings', async (_event, payload = {}) => {
+ipcMain.handle('mineradio-cache-set-settings', async (event, payload = {}) => {
+  // [二改][安全] 只接受主窗口的调用，且不接受网络路径（\\server\share）：缓存根目录会放 Chromium
+  // 会话数据和原生脚本，指向别人的共享等于把登录态交出去、执行别人给的脚本
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'CACHE_SETTINGS_UNTRUSTED_SENDER' };
   try {
-    const nextRoot = normalizeCacheRootPath(payload.rootPath);
+    const requestedRoot = String(payload && payload.rootPath || '').trim();
+    if (/^[\\/]{2}/.test(requestedRoot)) return { ok: false, error: 'CACHE_ROOT_NETWORK_PATH_REJECTED', message: '缓存目录不能是网络路径' };
+    const nextRoot = normalizeCacheRootPath(requestedRoot);
+    if (/^[\\/]{2}/.test(nextRoot)) return { ok: false, error: 'CACHE_ROOT_NETWORK_PATH_REJECTED', message: '缓存目录不能是网络路径' };
     fs.mkdirSync(nextRoot, { recursive: true });
     fs.accessSync(nextRoot, fs.constants.W_OK);
     cacheSettings = ensureCacheDirectories(writeCacheSettings({ rootPath: nextRoot }));
@@ -5065,7 +5776,8 @@ ipcMain.handle('desktop-window-set-close-behavior', (_event, behavior) => {
   return { ok: true, behavior: closeBehavior };
 });
 
-ipcMain.handle('mineradio-hotkeys-configure-global', (_event, bindings) => {
+ipcMain.handle('mineradio-hotkeys-configure-global', (event, bindings) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'HOTKEYS_UNTRUSTED_SENDER' };
   return configureMineradioGlobalHotkeys(bindings);
 });
 
@@ -5082,7 +5794,8 @@ function loginCookieExportMeta(provider) {
   return entries[key] || null;
 }
 
-ipcMain.handle('mineradio-export-login-cookie', async (_event, provider) => {
+ipcMain.handle('mineradio-export-login-cookie', async (event, provider) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'EXPORT_LOGIN_COOKIE_UNTRUSTED_SENDER' };
   try {
     const meta = loginCookieExportMeta(provider);
     if (!meta) return { ok: false, error: 'UNKNOWN_PROVIDER', message: '未知平台，无法导出登录 cookie' };
@@ -5092,9 +5805,16 @@ ipcMain.handle('mineradio-export-login-cookie', async (_event, provider) => {
     if (!source) return { ok: false, error: 'COOKIE_NOT_FOUND', message: `${meta.label} 当前没有可导出的登录 cookie` };
     const text = fs.readFileSync(source, 'utf8');
     const safeName = String(`${meta.label}_登录cookie.txt`).replace(/[\\/:*?"<>|]+/g, '-');
-    const filePath = path.join(app.getPath('desktop'), safeName);
-    fs.writeFileSync(filePath, text, 'utf8');
-    return { ok: true, filePath };
+    // [二改][安全] 明文登录态不再悄悄写到桌面：弹保存对话框，由用户决定放哪、要不要导出
+    const owner = getSenderWindow(event);
+    const picked = await dialog.showSaveDialog(owner || undefined, {
+      title: `导出 ${meta.label} 登录 cookie（明文，请勿分享给他人）`,
+      defaultPath: path.join(app.getPath('desktop'), safeName),
+      filters: [{ name: '文本文件', extensions: ['txt'] }],
+    });
+    if (!picked || picked.canceled || !picked.filePath) return { ok: false, canceled: true, error: 'EXPORT_CANCELED' };
+    fs.writeFileSync(picked.filePath, text, 'utf8');
+    return { ok: true, filePath: picked.filePath };
   } catch (e) {
     return { ok: false, error: e.message || 'EXPORT_LOGIN_COOKIE_FAILED' };
   }
@@ -5103,9 +5823,9 @@ ipcMain.handle('mineradio-export-login-cookie', async (_event, provider) => {
 ipcMain.handle('mineradio-export-json-file', async (event, payload = {}) => {
   try {
     const owner = getSenderWindow(event);
-    const defaultName = String(payload.defaultName || 'mineradio-export.json').replace(/[\\/:*?"<>|]+/g, '-');
+    const defaultName = String(payload.defaultName || 'notblind-export.json').replace(/[\\/:*?"<>|]+/g, '-');
     const result = await dialog.showSaveDialog(owner, {
-      title: '导出 Mineradio 存档',
+      title: '导出 Not Blind 存档',
       defaultPath: defaultName.toLowerCase().endsWith('.json') ? defaultName : `${defaultName}.json`,
       filters: [{ name: 'JSON', extensions: ['json'] }],
     });
@@ -5122,7 +5842,7 @@ ipcMain.handle('mineradio-import-json-file', async (event) => {
   try {
     const owner = getSenderWindow(event);
     const result = await dialog.showOpenDialog(owner, {
-      title: '导入 Mineradio 存档',
+      title: '导入 Not Blind 存档',
       properties: ['openFile'],
       filters: [{ name: 'JSON', extensions: ['json'] }],
     });
@@ -5207,7 +5927,8 @@ ipcMain.handle('mineradio-open-update-page', async (event, value) => {
   }
 });
 
-ipcMain.handle('mineradio-restart-app', async () => {
+ipcMain.handle('mineradio-restart-app', async (event) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'RESTART_UNTRUSTED_SENDER' };
   try {
     app.relaunch();
     app.exit(0);
@@ -5597,7 +6318,7 @@ async function ensureLocalServerStarted() {
 
 function showMainWindowSafely(win, reason) {
   if (!win || win.isDestroyed()) return false;
-  // A renderer may be reloaded while the user intentionally keeps Mineradio
+  // A renderer may be reloaded while the user intentionally keeps Not Blind
   // in the tray. Runtime recovery must never turn that reload into a surprise
   // foreground window.
   if (startupCompleted && win.__mineradioIntentionalHide === true) return false;
@@ -5804,7 +6525,7 @@ function recoverMainWindowAfterRendererGone(win, details = {}, cleanupPromise = 
   if (!attempt) {
     const error = new Error('renderer recovery limit reached');
     const log = writeStartupErrorLog('Runtime renderer recovery', 'MR-RUNTIME-RENDERER-LOOP', error);
-    dialog.showErrorBox('Mineradio 显示恢复失败', `前台界面连续异常退出，已停止自动重载。\n日志：${log.file}`);
+    dialog.showErrorBox('Not Blind 显示恢复失败', `前台界面连续异常退出，已停止自动重载。\n日志：${log.file}`);
     return Promise.resolve(false);
   }
   const keepFullscreen = win.isFullScreen() || windowFullscreenActive;
@@ -5840,7 +6561,7 @@ function recoverMainWindowAfterRendererGone(win, details = {}, cleanupPromise = 
         try { win.show(); } catch (_) { }
       }
       if (attempt >= RENDERER_RECOVERY_MAX_ATTEMPTS) {
-        dialog.showErrorBox('Mineradio 显示恢复失败', `前台界面无法重新加载。\n日志：${log.file}`);
+        dialog.showErrorBox('Not Blind 显示恢复失败', `前台界面无法重新加载。\n日志：${log.file}`);
       }
     }
     return false;
@@ -5949,6 +6670,7 @@ async function createWindowOnce() {
     },
   });
   mainWindow = win;
+  applyMainWindowTaskbarIdentity(win, 'create');
   hookExplorerRestartForFullDesktop(win);
   hookMainWindowMinimizeIntent(win);
   writeStartupState('window-created', { windowCreatedAt: Date.now() });
@@ -5958,13 +6680,14 @@ async function createWindowOnce() {
   }, STARTUP_SHOW_WATCHDOG_MS);
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    // [二改][安全] 只放行 http/https；原来任何协议都直接交给系统打开
+    openExternalSafely(url, true);
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (event, url) => {
     if (isTrustedMainDocumentUrl(url)) return;
     event.preventDefault();
-    if (/^https?:\/\//i.test(String(url || ''))) shell.openExternal(url).catch(() => {});
+    openExternalSafely(url, true);
   });
   win.webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
     if (!isMainFrame || isInPlace || !isTrustedMainDocumentUrl(url)) return;
@@ -5988,6 +6711,12 @@ async function createWindowOnce() {
     console.warn('[StartupWindow] did-fail-load:', errorCode, errorDescription, validatedURL || '');
   });
   win.webContents.on('render-process-gone', (_event, details) => {
+    stabilityLog('renderer-gone', {
+      reason: details && details.reason || 'unknown',
+      exitCode: details && details.exitCode,
+      desktop: stabilityDesktopStatusBrief(),
+      memory: stabilityMemorySnapshot(),
+    });
     const cleanupPromise = Promise.allSettled([
       stopWallpaperEngineRuntimeForRenderer(`render-process-gone:${details && details.reason || 'unknown'}`),
       closeWallpaperWindow(`main-renderer-gone:${details && details.reason || 'unknown'}`),
@@ -6005,6 +6734,13 @@ async function createWindowOnce() {
   });
   win.on('unresponsive', () => {
     console.warn('[StartupWindow] main window became unresponsive', { startupCompleted });
+    stabilityUnresponsiveAt = Date.now();
+    stabilityLog('renderer-unresponsive', { desktop: stabilityDesktopStatusBrief(), memory: stabilityMemorySnapshot() });
+  });
+  win.on('responsive', () => {
+    if (!stabilityUnresponsiveAt) return;
+    stabilityLog('renderer-responsive', { frozenSeconds: Math.round((Date.now() - stabilityUnresponsiveAt) / 100) / 10 });
+    stabilityUnresponsiveAt = 0;
   });
 
   win.webContents.on('before-input-event', (event, input) => {
@@ -6055,9 +6791,13 @@ async function createWindowOnce() {
     markMainWindowExpectedVisible(win, true, 'restore');
     sendWindowState(win);
     if (fullDesktopModeHostVisibilityTransitionDepth <= 0) resumeWallpaperEngineForVisibleHost(win, 'restore');
+    // [二改][修窗口隐身]
+    setTimeout(() => kickWindowedCompositor(win, 'restore', false), 120);
+    applyMainWindowTaskbarIdentity(win, 'restore');
   });
   win.on('show', () => {
     win.__mineradioIntentionalHide = false;
+    applyMainWindowTaskbarIdentity(win, 'show');
     markMainWindowExpectedVisible(win, true, 'show');
     if (fullDesktopModeHostVisibilityTransitionDepth > 0) return;
     sendWindowState(win);
@@ -6072,7 +6812,11 @@ async function createWindowOnce() {
     }
     scheduleAppMemoryTrim('hide', 2200);
   });
-  win.on('focus', () => sendWindowState(win));
+  win.on('focus', () => {
+    sendWindowState(win);
+    // [二改][修窗口隐身] 点到 / 切回窗口时把画面重新接回屏幕
+    kickWindowedCompositor(win, 'focus', false);
+  });
   win.on('blur', () => sendWindowState(win));
   win.on('move', () => {
     updateMainWindowMinimumSize(win);
@@ -6287,6 +7031,16 @@ if (!gotSingleInstanceLock) {
     screen.on('display-removed', handleDisplayLayoutChanged);
     powerMonitor.on('resume', () => restoreUnexpectedMainWindowVisibility(mainWindow, 'system-resume'));
     powerMonitor.on('unlock-screen', () => restoreUnexpectedMainWindowVisibility(mainWindow, 'screen-unlock'));
+    // [二改][修黑屏] 唤醒 / 解锁后壁纸窗口最容易被 Chromium 判成"被遮挡"而黑掉，立刻查一次
+    powerMonitor.on('resume', () => scheduleDesktopBlackScreenChecks('system-resume'));
+    powerMonitor.on('unlock-screen', () => scheduleDesktopBlackScreenChecks('screen-unlock'));
+    // [二改][修窗口隐身] 普通窗口模式下同样处理
+    powerMonitor.on('resume', () => scheduleWindowedCompositorKicks('system-resume'));
+    powerMonitor.on('unlock-screen', () => scheduleWindowedCompositorKicks('screen-unlock'));
+    // [二改][稳定性] 显卡 / 音频等子进程崩溃：记日志，桌面模式下显卡重启后主动恢复画面
+    app.on('child-process-gone', (_event, details) => {
+      try { handleChildProcessGoneForStability(details || {}); } catch (_) { }
+    });
     await createWindow();
   }).catch((e) => reportWindowCreationFailure('Main', e));
 

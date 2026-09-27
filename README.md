@@ -1,131 +1,70 @@
-# Mineradio Plus
+# Not Blind
 
-> **这是 Mineradio 的二次修改版（非官方）。** 原项目：[XxHuberrr/Mineradio](https://github.com/XxHuberrr/Mineradio)（GPL-3.0，已长期停更）。
-> 本仓库在原版 v2.2.0 基础上修改，主要改动：
-> - 主页主题：星图（北斗天穹）、调频、孔版海报，左上角拉绳切换，设置里也能改
-> - 完整桌面模式增强：进出桌面的拼图过场、编辑态自动隐藏桌面图标、右键回退、顶部滑出播放器与搜索、限帧省电、输入时 Esc 不误退桌面模式
-> - 修改代码集中在 `public/js/modules/12-home-themes/`、`public/js/modules/13-desktop-extras/`，以及 `desktop/main.js` 等文件里标注 `[二改]` / `[修]` 的地方
->
-> 以下为原项目说明。
+Not Blind 是一款 Windows 桌面沉浸式音乐播放器：有多套可切换的主页主题、歌词舞台、播放页视觉效果，还有能把播放器铺成桌面背景的桌面模式。
 
----
+> **这是基于 Mineradio 的二次开发版本（非官方）。**
+> 原项目：[XxHuberrr/Mineradio](https://github.com/XxHuberrr/Mineradio)，作者 XxHuberrr，GPL-3.0 协议，目前已长期停更。
+> Not Blind 在 Mineradio 2.2.0 源码的基础上修改，由 [fjzh632346-cmd](https://github.com/fjzh632346-cmd) 维护，与原作者没有隶属关系。有问题请在本仓库反馈，不要去打扰原作者。
+> 仓库保留了原项目的完整提交历史，可以看到哪些代码是原作者写的、哪些是后来改的。
 
-# Mineradio
+## 和原版 Mineradio 相比改了什么
 
-> **项目状态：长期停更**
->
-> 目前因个人原因，Mineradio 项目处于长期停更状态。感兴趣的个人玩家可随意使用本项目进行创作，也可以自行修改和修复 bug。希望各位玩得开心，也希望世界和平，享受我们的音乐。
->
-> 本仓库保留公开源码、历史版本和下载说明，方便个人玩家 Fork、建立分支或制作二创版本。
+- **改名换装**：软件名、图标、安装向导、开场动画（「一线」地平线开场）都换成了 Not Blind 自己的设计。appId 也换了新的，可以和原版 Mineradio 同时安装。
+- **主页主题**：回声（默认）、星图（北斗天穹）、午后窗影、孔版海报四套，左上角拉绳或在设置里切换。每套主题都有自己的歌单栏、搜索框、视觉/设置面板风格，主页还会显示当前歌词。
+- **播放页**：新增镜湖、声纹沙、铜雨、谐振等 3D 视觉效果和对应的歌词动效，另有平面（2D）歌词和配套的平面歌单。
+- **桌面模式**：拼图进出场、编辑态自动隐藏桌面图标、右键回退、顶部灵动岛、限帧省电等。
+- **界面整理**：右上角改为「视觉」和「设置」两个入口，快捷键和上手引导重新整理。
+- **软件内反馈**：没有 GitHub 账号也能直接在软件里提交反馈（详见 [PRIVACY.md](./PRIVACY.md)）。
+- **更新检测**：改为检测本仓库的 Releases。
 
-![Mineradio 暗场启动页](./docs/assets/readme/cinema-beat-smoke.png)
+改动较多的代码在 `public/js/modules/12-home-themes/`、`public/js/modules/13-desktop-extras/`、`public/notblind-*.js`、`desktop/feedback.js`，其余文件里的改动标了 `[二改]` / `[修]` 注释。完整改动记录见 [CHANGELOG.md](./CHANGELOG.md) 和 Git 提交历史。
 
-Mineradio 是一款 Windows 桌面沉浸式音乐播放器，把搜索播放、歌词舞台、粒子视觉、3D 歌单架和完整桌面模式组合成一个更接近现场感的私人音乐空间。
+## 下载
 
-## 立即下载 Windows 安装包
+到本仓库的 [Releases](https://github.com/fjzh632346-cmd/NotBlind/releases) 页面，下载 `NotBlind-版本号-Setup.exe` 并运行。每个版本的源码与同名 tag 对应。
 
-> 本次下载入口已更换，请使用下面的新网盘链接，并更新旧收藏。通过公告中的网盘入口下载，可以继续使用现有版本；项目目前处于长期停更状态。
+安装包没有数字签名，Windows 可能提示风险：浏览器下载栏点「保留」；蓝色 SmartScreen 窗口点「更多信息 → 仍要运行」。如果杀毒软件明确报毒，请不要运行，并在 Issues 里反馈。
 
-| 下载入口 | 推荐人群 | 链接 |
-| --- | --- | --- |
-| 夸克盘 | 夸克用户 | [下载 Mineradio 2.2.0](https://pan.quark.cn/s/4b124d3e81d3) |
-| 百度云 | 百度网盘用户（提取码 `SJHP`） | [下载 Mineradio 2.2.0](https://pan.baidu.com/s/17CwpHUza67w_Grgc3s5nOw?pwd=SJHP) |
-| GitHub Release | 版本说明与源码 | [查看 Mineradio 2.2.0](https://github.com/XxHuberrr/Mineradio/releases/tag/v2.2.0) |
+## 自己从源码运行 / 打包
 
-本页、发布公告和软件更新入口使用相同的两条新链接。旧分享地址不再作为本次版本的下载入口。
-
-安装时只需要下载并运行 `Mineradio-2.2.0-Setup.exe`。不要把 `.blockmap`、`latest.yml` 或 `win-unpacked` 当成正式安装包。
-
-2.1.0 用户如果未看到更新提醒，请从托盘彻底退出后重新打开软件，切回普通窗口，等待约 30 秒后查看右上角更新箭头。旧版不会自动弹出公告；也可以直接使用上面的新网盘链接下载安装包。
-
-## 下载或安装被拦截怎么办
-
-小众 Electron 桌面软件、未签名安装包有时会被浏览器、Windows Defender 或 SmartScreen 提示风险。请先确认安装包来自本次公告的下载入口，文件名是 `Mineradio-2.2.0-Setup.exe`。
-
-1. 浏览器下载栏提示风险时，打开下载列表，点这条下载右侧的 `...` 三个点，选择 `保留` / `仍要保留` / `显示更多` 后继续保留。
-2. Windows SmartScreen 弹出蓝色拦截窗口时，点 `更多信息`，再点 `仍要运行`。
-3. 如果杀毒软件明确显示木马、高危或已经隔离，不要强行运行；删除该文件后重新从上面的网盘入口下载，仍然异常请带截图反馈给作者。
-
-## 作者支持
-
-如果 Mineradio 陪你多听了一首歌，也欢迎请作者一杯咖啡。
-
-[查看完整支持页](./docs/SUPPORT.md)
-
-![Mineradio 作者支持渠道](./docs/assets/support/mineradio-author-support-poster.png)
-
-Mineradio 2.2 是历史稳定版本，修复了音乐接口的登录与播放问题，改善歌单加载和网络异常恢复，并加入更多手势操作与粒子预设。
-
-## 当前版本
-
-当前版本：`2.2.0`
-
-状态：Mineradio 2.2.0 历史正式版；项目目前长期停更。
-
-> 安全提示：`v1.0.10` 及更早旧安装包不再建议继续安装或传播。请使用本次公告提供的 `Mineradio-2.2.0-Setup.exe`。
-
-## 核心特性
-
-- 首页包含每日推荐、平台推荐、继续听、听歌画像和我的歌单入口
-- 完整桌面模式保留播放器、主页、歌单和桌面交互
-- 支持本地 MP4 与 Wallpaper Engine 视觉内容
-- 播放后切换到 Emily / 默认播放态视觉，歌词舞台与粒子舞台同步工作
-- 基于节奏的电影镜头视觉系统
-- 面向长播客和 DJ 曲目的专属视觉模式
-- 歌词舞台、自定义歌词、歌词位置与视觉控制
-- 自定义专辑封面上传与裁剪
-- 右键唤起 3D 歌单架，支持歌单队列浏览
-- 网易云音乐账号、搜索、歌单、播客等体验接入
-- QQ 音乐搜索、登录态与音源补充接入
-- GitHub Releases 更新检测与下载入口
-- 首次启动内置「默认测试」视觉用户存档，软件内默认视觉参数与该存档一致
-
-## 使用说明
-
-Windows 用户可以从本次发布公告列出的新网盘入口下载安装包。
-
-正式分发以 `Mineradio-2.2.0-Setup.exe` 为准，不建议直接使用 `win-unpacked` 目录。安装包会创建桌面快捷方式。
-
-已经安装过旧版本的用户可直接运行 `Mineradio-2.2.0-Setup.exe` 完成更新。软件内更新入口只会打开浏览器下载页，不会在客户端内下载或应用补丁。
-
-## 开发运行
+需要 Node.js 和 Git。
 
 ```bash
 npm install
-npm start
-npm run build:win
+npm start          # 直接运行
+npm run build:win  # 打包 Windows 安装包，产物在 dist/
 ```
 
-桌面版入口由 Electron 主进程加载本地服务。`npm run build:win` 会生成 Windows NSIS 安装包，产物位于 `dist/`。
+国内下载 Electron 慢的话，打包前先设置镜像（PowerShell）：
 
-## 更新机制
+```powershell
+$env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
+$env:ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-builder-binaries/"
+```
 
-Mineradio 会请求 GitHub Releases latest 检测新版本。远端版本高于本地版本时，应用内更新入口会展示 Release 内容，并通过系统浏览器打开可选网盘线路；即使 Release 附带完整安装包，`2.0.3+` 客户端也不会读取、下载、缓存或应用该附件与补丁。
-
-本地验证更新链路时，可以通过 `MINERADIO_UPDATE_MANIFEST` 指向一个本地 manifest JSON 或 HTTP 地址来模拟线上 Release。
+软件内反馈要连到你自己的接收服务器：在 `package.json` 的 `notblind.feedback` 里填 `endpoint` 和 `key`。不填的话，反馈功能不会发送任何东西。
 
 ## 第三方音乐平台说明
 
-Mineradio 不是网易云音乐、QQ 音乐或腾讯音乐娱乐集团的官方客户端，也不隶属于任何音乐平台。
+Not Blind 不是网易云音乐、QQ 音乐、酷狗音乐、汽水音乐、Spotify 或任何音乐平台的官方客户端，和这些平台没有隶属关系。
 
-项目中的第三方平台接入仅用于个人学习、本地客户端体验和用户自有账号的播放辅助。请遵守对应平台的用户协议、版权规则和会员权益规则。项目不会提供绕过付费、绕过会员、破解音质或重新分发音乐内容的能力。
+平台接入功能只用于个人学习，以及用户用**自己的账号**在本机播放。使用时请遵守各平台的用户协议、版权规则和会员权益规则。本项目不提供、也不接受任何绕过付费或会员、破解音质、下载或再分发音乐内容的功能。
 
 ## 用户数据与隐私
 
-登录 Cookie、搜索历史、自定义封面、自定义歌词、节奏分析缓存等数据只应保存在本机用户数据目录或浏览器本地存储中，不应提交到仓库。
-
-更多说明见 [PRIVACY.md](./PRIVACY.md)。
+登录状态、Cookie、播放记录、自定义封面和歌词等都只保存在你自己电脑上。只有你主动提交反馈时，才会发送你填写的内容和基本诊断信息。详见 [PRIVACY.md](./PRIVACY.md)。
 
 ## 致谢
 
-Mineradio 由 XxHuberrr 主要设计与打造。emily 作为早期视觉底层想法与 `emily` 视觉预设改进方向的共创者和灵感来源之一，特此感谢。
-
-同时感谢小天才e宝、应春日、锋将军、軌跡、林中、骊、风痕、花椰菜🥦在早期体验、测试反馈和发布准备中的帮助。
+- **Mineradio 原作者 XxHuberrr**：Not Blind 的播放、歌词舞台、粒子视觉、3D 歌单架、桌面模式等核心能力都来自 Mineradio。原项目的说明文档保存在 [docs/upstream/MINERADIO_README.md](./docs/upstream/MINERADIO_README.md)。
+- Mineradio 的共创者 emily，以及 Mineradio 早期的测试者和贡献者（名单见 [NOTICE.md](./NOTICE.md)）。
+- 第三方开源项目与社区移植代码（Electron、Three.js、GSAP、NeteaseCloudMusicApi、Cuefield 等），详见 [NOTICE.md](./NOTICE.md) 和 [docs/THIRD_PARTY_PORTS.md](./docs/THIRD_PARTY_PORTS.md)。
 
 ## 版权与授权
 
-Copyright (C) 2026 XxHuberrr.
+- Mineradio 原始代码：Copyright (C) 2026 XxHuberrr
+- Not Blind 修改部分：Copyright (C) 2026 fjzh632346-cmd
 
-本项目采用 GPL-3.0 授权。详见 [LICENSE](./LICENSE)。
+本项目整体采用 **GPL-3.0** 协议授权，全文见 [LICENSE](./LICENSE)。你可以自由使用、修改和再发布，但再发布时必须同样以 GPL-3.0 开源，并保留以上版权与署名信息。
 
-MR Logo、Mineradio 名称、界面视觉设计与原创视觉表达归作者所有；第三方依赖和第三方服务分别遵循其各自授权与服务条款。
+"Mineradio" 名称和 MR Logo 归原作者所有，Not Blind 没有使用它们作为本软件的标识。第三方依赖和服务分别遵循各自的授权与服务条款。

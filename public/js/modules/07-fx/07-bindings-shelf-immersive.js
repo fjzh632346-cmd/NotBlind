@@ -476,6 +476,8 @@ function toggleFx(key) {
   }
 }
 function toggleFxPanel(force) {
+  // [二改] 视觉控制台 = 现在的「设置」面板，开关交给 08-visual-settings.js
+  if (typeof toggleNbSettingsSheet === 'function') { toggleNbSettingsSheet(force); return; }
   var el = document.getElementById('fx-panel');
   if (!el) return;
   if (!diyPlayerMode && force !== false) {

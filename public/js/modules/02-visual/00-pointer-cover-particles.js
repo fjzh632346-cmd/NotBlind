@@ -147,6 +147,9 @@ window.addEventListener('mouseup', function (e) {
     var nz = (0.5 - e.clientY / Math.max(1, innerHeight)) * 34;
     MineradioSonicTopography.pointerRipple(nx, nz, strength);
   }
+  if (window.NotBlindStageFx && NotBlindStageFx.isActive(fx) && !mouseDownAt.hadDrag && !isPointerOverUi(e)) {
+    NotBlindStageFx.pointer(e.clientX, e.clientY, { camera: camera, pressMs: Math.max(0, performance.now() - (mouseDownAt.t || 0)) });
+  }
 });
 renderer.domElement.addEventListener('mouseleave', function () {
   particlePointerFrame.dirty = false;
@@ -161,6 +164,21 @@ renderer.domElement.addEventListener('wheel', function (e) {
   if (freeCamera && freeCamera.active) {
     freeCamera.fov = clampRange((freeCamera.fov || BASE_FOV) + e.deltaY * 0.018, 26, 72);
     saveFreeCameraState();
+    return;
+  }
+  // [二改][修滚轮] 自由镜头"已固定"（按过两次 R：开 → 固定；这个状态会记住，重开软件还在）时，
+  // 画面由固定镜头决定，下面改轨道半径不起作用 —— 以前滚轮就像失灵了。
+  // 这里改成沿镜头朝向前后推拉，滚轮照样能调远近；按 K 回到默认镜头。
+  if (freeCamera && freeCamera.locked && !freeCamera.resetTween) {
+    var dollyDir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(freeCamera.pitch || 0, freeCamera.yaw || 0, freeCamera.roll || 0, 'YXZ'));
+    var dollyNext = freeCamera.position.clone().addScaledVector(dollyDir, -e.deltaY * 0.005);
+    var dollyDist = dollyNext.length();
+    if (dollyDist >= 1.2 && dollyDist <= 40) freeCamera.position.copy(dollyNext);
+    saveFreeCameraState();
+    if (!window.__nbFixedCamWheelHinted) {
+      window.__nbFixedCamWheelHinted = true;
+      showToast('自由镜头处于固定状态 · 按 K 回到默认镜头');
+    }
     return;
   }
   if (fx && fx.preset === SKULL_PRESET_INDEX && typeof skullWheelZoomTarget !== 'undefined') {
@@ -1160,6 +1178,7 @@ scene.add(backgroundStarRiverParticles);
 function backgroundStarRiverTargetAlpha() {
   if (!fx || fx.backgroundStarRiver === false) return 0;
   if (Number(fx.preset) === 5) return 0;
+  if (window.NotBlindStageFx && NotBlindStageFx.isActive(fx)) return NotBlindStageFx.starRiverAlpha(fx);
   if (typeof SONIC_PRESET_INDEX !== 'undefined' && Number(fx.preset) === SONIC_PRESET_INDEX) return 0;
   if (typeof SONIC_WORKSHOP_PRESET_INDEX !== 'undefined' && Number(fx.preset) === SONIC_WORKSHOP_PRESET_INDEX) return 0.28;
   if (typeof SKULL_PRESET_INDEX !== 'undefined' && Number(fx.preset) === SKULL_PRESET_INDEX) return 0.38;

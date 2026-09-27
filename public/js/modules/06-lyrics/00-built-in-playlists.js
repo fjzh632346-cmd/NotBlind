@@ -4,7 +4,7 @@ function normalizeBuiltInPlaylistRows(rows) {
       provider: 'mineradio',
       source: 'mineradio',
       builtin: true,
-      creator: playlist.creator || 'Mineradio',
+      creator: playlist.creator || 'Not Blind',
       shelfPane: 'mine',
       subscribed: false
     });
@@ -91,7 +91,7 @@ async function createBuiltInPlaylist(name, initialTrack) {
 }
 
 function promptCreateBuiltInPlaylist() {
-  var name = window.prompt('新建 Mineradio 内置歌单', '我的歌单');
+  var name = window.prompt('新建 Not Blind 内置歌单', '我的歌单');
   if (name == null) return;
   createBuiltInPlaylist(name).catch(function (error) {
     console.warn('[BuiltInPlaylistCreate]', error);

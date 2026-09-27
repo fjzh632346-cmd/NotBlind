@@ -3,6 +3,7 @@
 (function loadMineradioIndexModules() {
   const moduleCacheBust = String(Date.now());
   const modulePaths = [
+    'js/modules/00-state/00-quiet-classlist.js',
     'js/modules/00-state/00-core-stores.js',
     'js/modules/00-state/01-perf-render-state.js',
     'js/modules/00-state/02-preferences-ui-modes.js',
@@ -38,6 +39,8 @@
     'js/modules/02-visual/15-ripples-cover-depth.js',
     'sonic-topography-preset.js',
     'sonic-workshop-preset.js',
+    'notblind-stage-fx.js',
+    'notblind-lyric-fx.js',
     'js/modules/03-beat/00-tempo-worker-cache-prefetch.js',
     'js/modules/03-beat/01-audio-beat-analysis.js',
     'js/modules/03-beat/02-podcast-dj-analysis.js',
@@ -110,9 +113,17 @@
     'js/modules/11-main-loop.js',
     'js/modules/12-home-themes/00-home-model.js',
     'js/modules/12-home-themes/01-theme-host.js',
+    'js/modules/12-home-themes/02-panel-skins.js',
+    'js/modules/12-home-themes/03-home-lyric.js',
     'js/modules/12-home-themes/10-theme-star-atlas.js',
-    'js/modules/12-home-themes/11-theme-fm-dial.js',
+    'js/modules/12-home-themes/11-theme-afternoon.js',
     'js/modules/12-home-themes/12-theme-riso-poster.js',
+    'js/modules/12-home-themes/13-theme-echo.js',
+    'js/modules/12-home-themes/20-panel-skin-star-atlas.js',
+    'js/modules/12-home-themes/21-panel-skin-afternoon.js',
+    'js/modules/12-home-themes/22-panel-skin-riso-poster.js',
+    'js/modules/12-home-themes/23-panel-skin-echo.js',
+    'js/modules/12-home-themes/30-theme-search-skins.js',
     'js/modules/13-desktop-extras/00-desktop-puzzle.js',
     'js/modules/13-desktop-extras/01-desktop-icon-auto.js',
     'js/modules/13-desktop-extras/02-right-click-back.js',
@@ -120,6 +131,11 @@
     'js/modules/13-desktop-extras/04-desktop-top-player.js',
     'js/modules/13-desktop-extras/05-desktop-fps-cap.js',
     'js/modules/13-desktop-extras/06-desktop-esc-guard.js',
+    'js/modules/13-desktop-extras/07-top-island.js',
+    'js/modules/13-desktop-extras/08-visual-settings.js',
+    'js/modules/13-desktop-extras/20-feedback.js',
+    'js/modules/13-desktop-extras/09-shortcuts-guide.js',
+    'js/modules/13-desktop-extras/21-flat-shelf.js',
   ];
 
   function readModule(path) {
@@ -128,7 +144,7 @@
     request.send(null);
 
     if ((request.status < 200 || request.status >= 300) && request.status !== 0) {
-      throw new Error('Failed to load Mineradio module: ' + path + ' (' + request.status + ')');
+      throw new Error('Failed to load Not Blind module: ' + path + ' (' + request.status + ')');
     }
 
     return request.responseText;

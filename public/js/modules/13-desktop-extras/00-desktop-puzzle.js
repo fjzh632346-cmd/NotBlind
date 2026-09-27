@@ -1,7 +1,7 @@
 ;
 // ============================================================
 // [二改] 完整桌面模式 · 拼图过场
-// - 进入：Mineradio 挂到桌面后先整块藏起来，拼图块从屏幕外飞回原位，
+// - 进入：Not Blind 挂到桌面后先整块藏起来，拼图块从屏幕外飞回原位，
 //   每落稳一块，就在那一块的形状里露出真实画面。
 // - 退出：先拍下当前画面，换成一整张拼好的拼图，再一块块松动、散落、
 //   淡出，露出原本的桌面，最后才真正退出桌面模式。
@@ -205,6 +205,8 @@
       s2.fill(path);
       p.shadow = sd;
     });
+    // [二改][内存] 整屏底图裁完就不用了，立刻把像素还掉（4K 下一张就是几十 MB）
+    full.width = full.height = 0;
   }
 
   function ensureOverlay() {
@@ -227,7 +229,21 @@
   }
   function removeOverlay() {
     if (st.overlay && st.overlay.parentNode) st.overlay.parentNode.removeChild(st.overlay);
+    // [二改][内存] 画布宽高清零 = 立刻释放像素内存；不清的话要等垃圾回收，
+    // 反复进出桌面模式时几百 MB 的拼图块会堆在内存里
+    if (st.overlay) { st.overlay.width = st.overlay.height = 0; }
     st.overlay = null; st.ctx = null;
+  }
+  function releasePieces() {
+    var pz = st.pieces;
+    if (pz && pz.list) {
+      pz.list.forEach(function (p) {
+        if (p.sprite) { p.sprite.width = p.sprite.height = 0; p.sprite = null; }
+        if (p.shadow) { p.shadow.width = p.shadow.height = 0; p.shadow = null; }
+      });
+    }
+    st.pieces = null;
+    st.snapshot = null;
   }
   function stopRun() {
     st.token += 1;
@@ -415,8 +431,7 @@
     var shell = document.getElementById('desktop-window-shell');
     if (shell && shell.style && shell.style.opacity === '0') shell.style.opacity = '';
     removeOverlay();
-    st.snapshot = null;
-    st.pieces = null;
+    releasePieces();
   }
   function cancel() {
     stopRun();
@@ -530,7 +545,7 @@
       if (typeof wakeMainLoopFromBackground === 'function') wakeMainLoopFromBackground();
     } catch (_) { }
     removeOverlay();
-    st.snapshot = null; st.pieces = null;
+    releasePieces();
     var wasMasked = !!(body && body.classList.contains('dpz-masking'));
     finishIn(); // 不管之前是什么状态，一律把真实画面还回来
     if (wasMasked) {

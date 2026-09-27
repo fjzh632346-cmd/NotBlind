@@ -31,8 +31,10 @@ function saveAudioFadePreference() {
     }));
   } catch (e) { }
 }
+// [二改] DIY 玩家模式已去掉：功能一律完整开放，细节调整放进右上角「设置」，预设和主题放进「视觉」。
+// diyPlayerMode 恒为 true，旧代码里按它判断的地方都走"完整"分支。
 function readDiyModePreference() {
-  try { return localStorage.getItem(DIY_MODE_STORE_KEY) === '1'; } catch (e) { return false; }
+  return true;
 }
 function saveDiyModePreference(on) {
   try { localStorage.setItem(DIY_MODE_STORE_KEY, on ? '1' : '0'); } catch (e) { }
@@ -328,17 +330,11 @@ function isDiyMode() {
   return !!diyPlayerMode;
 }
 function syncDiyModeButton() {
-  ['diy-mode-btn', 'fullscreen-diy-btn'].forEach(function (id) {
-    var btn = document.getElementById(id);
-    if (!btn) return;
-    btn.classList.toggle('on', diyPlayerMode);
-    btn.setAttribute('aria-pressed', diyPlayerMode ? 'true' : 'false');
-    btn.title = diyPlayerMode ? '关闭 DIY 玩家模式' : '开启 DIY 玩家模式';
-    btn.setAttribute('aria-label', btn.title);
-  });
+  // 旧的 DIY 按钮现在是「视觉」入口，按下态由视觉面板自己维护
 }
 function applyDiyMode(on, opts) {
   opts = opts || {};
+  on = true; // DIY 模式已去掉，始终完整
   diyPlayerMode = !!on;
   document.documentElement.classList.toggle('diy-mode-preload', diyPlayerMode);
   document.documentElement.classList.toggle('simple-mode-preload', !diyPlayerMode);
@@ -364,9 +360,6 @@ function applyDiyMode(on, opts) {
   }
 }
 function toggleDiyMode() {
-  applyDiyMode(!diyPlayerMode, { save: true, toast: true, animate: true });
-  if (visualGuideActive) {
-    visualGuideState.mode = diyPlayerMode ? 'diy' : 'simple';
-    showVisualGuideStep(0);
-  }
+  // 旧入口（标题栏 / 全屏 DIY 按钮）现在打开「视觉」面板
+  if (typeof toggleNbVisualSheet === 'function') toggleNbVisualSheet();
 }

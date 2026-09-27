@@ -8,11 +8,15 @@ if (emptyHomeStartEl) {
     if (typeof openHomeDashboardRadio === 'function') openHomeDashboardRadio();
   }, true);
 }
+// [二改] 在主页上开始播放不再自动跳到播放页：主页一旦显示就"粘住"，
+// 只有明确离开（点正在播放的歌名、「去播放页看看」、进沉浸模式）才撤掉。见 nbEnterStage()。
+var nbHomeSticky = false;
 function shouldShowEmptyHomeCore(ignoreSplash) {
   if (!ignoreSplash && document.body.classList.contains('splash-active')) return false;
-  if (immersiveMode) return false;
+  if (immersiveMode) { nbHomeSticky = false; return false; }
   if (homeForcedOpen) return true;
   if (homeSuppressed) return false;
+  if (nbHomeSticky) return true;
   if (shelfPinnedOpen) return false;
   if (shelfManager && shelfManager.hasOpenContent && shelfManager.hasOpenContent()) return false;
   if (shouldShowHomeForPausedStartupRestore()) return true;
@@ -130,6 +134,7 @@ function applyStartupStarfieldPreset() {
 function updateEmptyHomeVisibility(opts) {
   opts = opts || {};
   var show = shouldShowEmptyHome();
+  if (show) nbHomeSticky = true;
   emptyHomeActive = show;
   document.body.classList.toggle('empty-home-active', show);
   if (!show) setHomeControlsLocked(false);
@@ -164,6 +169,9 @@ function runHomeSearch(query, mode) {
   var q = String(query || '').trim();
   var area = document.getElementById('search-area');
   if (area) setPeek(area, true, 'search');
+  // [二改][修主题搜索] 主页主题盖着的时候，原来的搜索框被主题整个藏起来了：
+  // 搜索其实跑了、结果也出来了，只是看不见。这里让搜索框浮到主题上面显示。
+  if (document.body.classList.contains('home-theme-on')) nbOpenThemeSearchOverlay();
   if ($input) {
     $input.value = q;
     $input.focus();
@@ -172,6 +180,58 @@ function runHomeSearch(query, mode) {
   else if (searchMode === 'podcast') loadPodcastHot();
   else renderSearchHistory();
 }
+// 主题上的搜索浮层：点搜索框以外的地方、按 Esc、离开主页，都会收起
+function nbOpenThemeSearchOverlay() {
+  if (!document.getElementById('nb-theme-search-style')) {
+    var st = document.createElement('style');
+    st.id = 'nb-theme-search-style';
+    st.textContent = [
+      'body.home-theme-on.nb-theme-searching #search-area.peek{visibility:visible!important;opacity:1!important;pointer-events:auto!important;z-index:40!important;-webkit-app-region:no-drag}',
+      '#nb-theme-search-veil{position:fixed;inset:0;z-index:39;background:rgba(6,6,8,.5);opacity:0;pointer-events:none;transition:opacity .22s ease}',
+      'body.home-theme-on.nb-theme-searching #nb-theme-search-veil{opacity:1;pointer-events:auto}'
+    ].join('\n');
+    document.head.appendChild(st);
+  }
+  var veil = document.getElementById('nb-theme-search-veil');
+  if (!veil) {
+    veil = document.createElement('div');
+    veil.id = 'nb-theme-search-veil';
+    veil.addEventListener('pointerdown', function (e) { e.preventDefault(); e.stopPropagation(); nbCloseThemeSearchOverlay(); });
+  }
+  // [二改][修模糊] 遮罩必须和搜索框放在同一层容器里：桌面版里整个界面包在一个独立图层的外壳中，
+  // 遮罩挂在 body 上会盖在整个外壳（连同搜索框）上面，把搜索框也一起糊掉
+  var areaEl = document.getElementById('search-area');
+  if (areaEl && areaEl.parentNode && veil.nextSibling !== areaEl) areaEl.parentNode.insertBefore(veil, areaEl);
+  else if (!veil.parentNode) document.body.appendChild(veil);
+  document.body.classList.add('nb-theme-searching');
+  // 点了结果里的歌之后，原来的逻辑会清空结果；这时（输入框也不在打字）顺手把浮层收起，回到主题
+  var area = document.getElementById('search-area');
+  if (area && !area.__nbThemeSearchWatch) {
+    area.__nbThemeSearchWatch = true;
+    new MutationObserver(function () {
+      if (!document.body.classList.contains('nb-theme-searching')) return;
+      if (area.classList.contains('has-results')) return;
+      setTimeout(function () {
+        if (!area.classList.contains('has-results') && document.activeElement !== $input) nbCloseThemeSearchOverlay();
+      }, 120);
+    }).observe(area, { attributes: true, attributeFilter: ['class'] });
+  }
+}
+function nbCloseThemeSearchOverlay() {
+  if (!document.body.classList.contains('nb-theme-searching')) return;
+  document.body.classList.remove('nb-theme-searching');
+  if ($input && document.activeElement === $input) $input.blur();
+}
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' && document.body.classList.contains('nb-theme-searching')) {
+    e.preventDefault();
+    e.stopPropagation();
+    nbCloseThemeSearchOverlay();
+  }
+}, true);
+if (document.body) new MutationObserver(function () {
+  if (!document.body.classList.contains('home-theme-on')) nbCloseThemeSearchOverlay();
+}).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 function skipLoginAndFocusSearch() {
   closeLoginModal();
   setTimeout(function () { runHomeSearch(''); }, 180);
@@ -309,11 +369,8 @@ function openHomeLibrary() {
   refreshUserPlaylists(true);
 }
 function goHome() {
-  if (homeForcedOpen || emptyHomeActive) {
-    dismissHomePage({ toast: true });
-    showToast('已关闭 Home');
-    return;
-  }
+  // [二改] 主页键只负责回主页；已经在主页就不动（离开主页 = 点正在播放的歌名）
+  if (homeForcedOpen || emptyHomeActive) return;
   homeSuppressed = false;
   homeForcedOpen = true;
   setHomeControlsLocked(true);
@@ -326,10 +383,10 @@ function goHome() {
   if (typeof setFocusZone === 'function') setFocusZone(null, true);
   if (orbit && orbit.focus) orbit.focus.active = false;
   updateEmptyHomeVisibility({ forceLoad: true });
-  showToast('已回到 Home');
 }
 function dismissHomePage(opts) {
   opts = opts || {};
+  nbHomeSticky = false;
   homeForcedOpen = false;
   homeSuppressed = true;
   setHomeControlsLocked(false);

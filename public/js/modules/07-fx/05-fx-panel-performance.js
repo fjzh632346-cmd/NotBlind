@@ -55,7 +55,7 @@ function updateDevelopmentFxControls() {
     ['desktopLyricsClickThrough', 't-desktopLyricsClickThrough', '锁定后防误触；鼠标移到桌面歌词上按中键可锁定/解锁'],
     ['desktopLyricsCinema', 't-desktopLyricsCinema', '桌面歌词绑定鼓点电影震动，基础漂浮始终保留'],
     ['desktopLyricsHighlight', 't-desktopLyricsHighlight', '桌面歌词按播放进度高亮'],
-    ['wallpaperMode', 't-wallpaperMode', '把完整 Mineradio 放到 Windows 桌面；右上控制器可显示、隐藏桌面图标；Esc 退出；重启默认关闭']
+    ['wallpaperMode', 't-wallpaperMode', '把完整 Not Blind 放到 Windows 桌面；右上控制器可显示、隐藏桌面图标；Esc 退出；重启默认关闭']
   ].forEach(function (item) {
     var runtimeUnavailable = item[0] === 'wallpaperMode'
       && typeof desktopWallpaperRuntimeState !== 'undefined'
@@ -515,12 +515,13 @@ function ensureFxSliderResetButton(id, key) {
   });
   el.parentElement.appendChild(btn);
 }
-var fxPanelTab = 'home';
+var fxPanelTab = 'quick';
 var fxPanelTabScroll = {};
 function setFxPanelTab(tab) {
-  var allowed = { home: 1, interface: 1, lyrics: 1, motion: 1, shelf: 1, system: 1 };
+  // [二改] 原「常用」页（预设和存档）搬去了「视觉」面板；现在的 quick = 新「常用」快捷页，旧的 home 也落到这里
+  var allowed = { quick: 1, interface: 1, lyrics: 1, motion: 1, shelf: 1, system: 1 };
   var panel = document.getElementById('fx-panel');
-  var nextTab = allowed[tab] ? tab : 'home';
+  var nextTab = allowed[tab] ? tab : 'quick';
   var previousTab = fxPanelTab;
   if (panel && previousTab !== nextTab && panel.getAttribute('data-console-layout') === 'task-first-v2') {
     fxPanelTabScroll[previousTab] = panel.scrollTop;
@@ -747,7 +748,7 @@ function relabelFxPanelControls() {
   setFxSliderLabel('fx-bgcropy', '\u88c1\u5207\u4e0a\u4e0b');
   setFxSliderLabel('fx-bgzoom', '\u88c1\u5207\u7f29\u653e');
   var title = document.querySelector('#fx-panel .fx-title');
-  if (title) title.textContent = '视觉控制台';
+  if (title) title.textContent = '设置';
   ensureLyricPrimaryControls();
   ensureFxRangeControl('fx-lyrictranslationgap', 'fx-lyrictranslationscale', '译文字号', 0.46, 1.12, 0.01);
   ensureFxRangeControl('fx-lyrictranslationscale', 'fx-lyrictranslationopacity', '译文透明', 0.20, 1, 0.01);

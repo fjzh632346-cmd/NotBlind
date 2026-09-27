@@ -406,10 +406,15 @@ function maybeTrimRuntimeCaches(now) {
 function applyRendererPowerMode() {
   if (typeof renderer === 'undefined' || !renderer) return;
   var deep = isDeepBackgroundMode();
-  var width = deep ? 4 : Math.max(1, innerWidth);
-  var height = deep ? 4 : Math.max(1, innerHeight);
+  // [二改][显存] 全屏主页主题盖住 3D 场景时（桌面背景常年就是这个状态），3D 画布缩到 4×4，
+  // 把整屏大小的绘图缓冲（4K 下几十 MB 显存）还给显卡；主题一撤走就按原尺寸恢复。
+  var covered = false;
+  // 这个函数在主题模块初始化之前就会被调用（那时 homeThemeHost 还没赋值），所以包一层
+  try { covered = !deep && typeof homeThemeHidesSceneForPower === 'function' && homeThemeHidesSceneForPower(); } catch (_e) { covered = false; }
+  var width = (deep || covered) ? 4 : Math.max(1, innerWidth);
+  var height = (deep || covered) ? 4 : Math.max(1, innerHeight);
   var pixelRatio = getRenderPixelRatio();
-  var mode = deep ? 'sleep' : 'active';
+  var mode = deep ? 'sleep' : (covered ? 'covered' : 'active');
   if (renderPowerState.mode === mode && renderPowerState.width === width && renderPowerState.height === height && Math.abs(renderPowerState.pixelRatio - pixelRatio) < 0.001) return;
   renderPowerState = { mode: mode, width: width, height: height, pixelRatio: pixelRatio };
   renderer.setPixelRatio(pixelRatio);

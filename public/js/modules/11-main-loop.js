@@ -579,6 +579,23 @@ function animate() {
     audioEnergy = Math.max(audioEnergy, beatPulse * 0.38, djMode.sectionEnergy * 0.54);
   }
 
+  // [二改][平面歌词] 播放页换成「平面歌词」（notblind-lyric-fx.js）时：3D 舞台（粒子、立体歌词、封面层）整个休眠。
+  // 上面的音频分析照做；书架、镜头、桌面歌词照常更新；3D 画布只在侧边书架露出来时画书架，其余时间清空。
+  if (window.NotBlindLyricFx && NotBlindLyricFx.coversScene()) {
+    var lfxShelfDt = consumeFrameGate(mainFrameGates.shelf, now, dt, targetMainShelfFps(now), false, 'shelf-manager');
+    if (lfxShelfDt > 0 && shelfManager) shelfManager.update(lfxShelfDt);
+    var lfxHomeAudioDt = consumeFrameGate(mainFrameGates.homeAudio, now, dt, targetMainHomeAudioFps(now), false, 'home-audio');
+    if (lfxHomeAudioDt > 0) updateHomeAudioVisual(lfxHomeAudioDt);
+    updateCinema(dt);
+    updateFreeCamera(dt);
+    updateCamera();
+    var lfxOverlayDt = consumeFrameGate(mainFrameGates.desktopOverlay, now, dt, targetMainDesktopOverlayFps(now), false, 'desktop-overlay');
+    if (lfxOverlayDt > 0) syncDesktopOverlayState();
+    NotBlindLyricFx.renderScene(renderer, scene, camera);
+    if (perfProbe && perfProbe.mark) perfProbe.mark('frame.total', performance.now() - framePerfStart);
+    return;
+  }
+
   var vinylSpeedMul = isFinite(fx.speed) ? Math.max(0.05, fx.speed) : 1;
   var vinylSpinSpeed = (0.40 + smoothBass * 0.09) * vinylSpeedMul;
   uniforms.uVinylSpin.value = (uniforms.uVinylSpin.value + dt * vinylSpinSpeed) % (Math.PI * 2);
@@ -633,7 +650,7 @@ function animate() {
   // v7.2 旋转 = 头部+眼球追踪 + 鼠标/手势拖动 + 惯性
   tickGestureRotation(dt);
   var skullPresetActive = fx && fx.preset === SKULL_PRESET_INDEX;
-  var workshopPresetActive = window.MineradioSonicWorkshop && MineradioSonicWorkshop.isActive(fx);
+  var workshopPresetActive = (window.MineradioSonicWorkshop && MineradioSonicWorkshop.isActive(fx)) || (window.NotBlindStageFx && NotBlindStageFx.isActive(fx));
   var presetUsesStarRiverParticles = fx && (Number(fx.preset) === 5 || (typeof SONIC_PRESET_INDEX !== 'undefined' && Number(fx.preset) === SONIC_PRESET_INDEX));
   var presetStarRiverMuted = presetUsesStarRiverParticles && fx.backgroundStarRiver === false;
   particles.visible = !skullPresetActive && !workshopPresetActive && !presetStarRiverMuted;
@@ -682,6 +699,22 @@ function animate() {
     });
   }
   if (perfProbe && perfProbe.markSince) perfProbe.markSince('visual.sonic-workshop', sonicWorkshopPerfStart);
+  var nbStagePerfStart = performance.now();
+  if (window.NotBlindStageFx) {
+    NotBlindStageFx.update(dt, {
+      scene: scene,
+      fx: fx,
+      camera: camera,
+      time: uniforms.uTime.value,
+      screenHeight: window.innerHeight,
+      dpr: renderer.getPixelRatio ? renderer.getPixelRatio() : (window.devicePixelRatio || 1),
+      visualRotation: particles && particles.rotation ? particles.rotation : null,
+      stageFrame: particles || null,
+      lyricGroup: (typeof stageLyrics !== 'undefined' && stageLyrics && stageLyrics.group) ? stageLyrics.group : null,
+      audio: sonicAudioFrame || { bass: bass, mid: mid, treble: treble, beat: beatPulse, energy: audioEnergy }
+    });
+  }
+  if (perfProbe && perfProbe.markSince) perfProbe.markSince('visual.notblind-stage', nbStagePerfStart);
   var stageLyricsPerfStart = performance.now();
   var stageLyricsStepDt = consumeFrameGate(mainFrameGates.stageLyrics, now, dt, targetMainStageLyricsFps(now), false, 'stage-lyrics');
   if (stageLyricsStepDt > 0) updateStageLyrics3D(stageLyricsStepDt);

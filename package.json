@@ -1,10 +1,18 @@
 {
-  "name": "mineradio",
-  "productName": "Mineradio",
+  "name": "notblind",
+  "productName": "NotBlind",
   "version": "2.3.0",
   "description": "Windows 沉浸式音乐播放器，融合桌面模式、歌词舞台、粒子视觉和 3D 歌单架。",
-  "author": "Mineradio",
+  "author": "Not Blind (fjzh632346-cmd)",
+  "contributors": [
+    "XxHuberrr (Mineradio original author, https://github.com/XxHuberrr/Mineradio)"
+  ],
   "license": "GPL-3.0-only",
+  "homepage": "https://github.com/fjzh632346-cmd/NotBlind",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fjzh632346-cmd/NotBlind.git"
+  },
   "main": "desktop/main.js",
   "private": true,
   "scripts": {
@@ -14,8 +22,8 @@
     "build:win:internal-beta": "electron-builder --config electron-builder.internal-beta.json --win nsis --publish never"
   },
   "build": {
-    "appId": "com.mineradio.desktop",
-    "productName": "Mineradio",
+    "appId": "com.notblind.desktop",
+    "productName": "NotBlind",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -47,7 +55,7 @@
     ],
     "asar": false,
     "win": {
-      "executableName": "Mineradio",
+      "executableName": "NotBlind",
       "icon": "build/icon.ico",
       "signAndEditExecutable": false,
       "target": [
@@ -65,28 +73,39 @@
       "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Mineradio",
+      "shortcutName": "Not Blind",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerSidebar": "build/installerSidebar.bmp",
       "uninstallerSidebar": "build/installerSidebar.bmp",
       "installerHeader": "build/installerHeader.bmp",
       "include": "build/installer.nsh",
-      "artifactName": "Mineradio-${version}-Setup.${ext}"
+      "artifactName": "NotBlind-${version}-Setup.${ext}",
+      "uninstallDisplayName": "Not Blind"
     },
     "publish": [
       {
         "provider": "github",
         "owner": "fjzh632346-cmd",
-        "repo": "Mineradio-Plus"
+        "repo": "NotBlind"
       }
     ]
   },
-  "mineradio": {
+  "notblind": {
+    "displayName": "Not Blind",
+    "runtimeName": "NotBlind",
+    "appUserModelId": "com.notblind.desktop",
+    "feedback": {
+      "endpoint": "",
+      "key": ""
+    },
+    "legacyRuntimeNames": [
+      "Mineradio"
+    ],
     "update": {
       "provider": "github",
       "owner": "fjzh632346-cmd",
-      "repo": "Mineradio-Plus",
+      "repo": "NotBlind",
       "preview": false,
       "preferMirrors": true,
       "mirrors": [

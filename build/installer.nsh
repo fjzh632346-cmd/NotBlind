@@ -11,10 +11,10 @@
   !define MUI_DIRECTORYPAGE_TEXTCOLOR "111217"
 !endif
 !ifndef MUI_INSTFILESPAGE_COLORS
-  !define MUI_INSTFILESPAGE_COLORS "3257F7 FFFFFF"
+  !define MUI_INSTFILESPAGE_COLORS "111217 FFFFFF"
 !endif
 !ifndef MUI_FINISHPAGE_LINK_COLOR
-  !define MUI_FINISHPAGE_LINK_COLOR "3257F7"
+  !define MUI_FINISHPAGE_LINK_COLOR "C23A22"
 !endif
 !ifndef MUI_HEADERIMAGE
   !define MUI_HEADERIMAGE
@@ -38,22 +38,22 @@
 !include WinMessages.nsh
 
 !ifndef MINERADIO_INSTALL_DIR_NAME
-  !define MINERADIO_INSTALL_DIR_NAME "Mineradio"
+  !define MINERADIO_INSTALL_DIR_NAME "NotBlind"
 !endif
 !ifndef MINERADIO_INSTALL_DIR_NAME_LOWER
-  !define MINERADIO_INSTALL_DIR_NAME_LOWER "mineradio"
+  !define MINERADIO_INSTALL_DIR_NAME_LOWER "notblind"
 !endif
 !ifndef MINERADIO_INSTALL_MARKER
-  !define MINERADIO_INSTALL_MARKER ".mineradio-install-root"
+  !define MINERADIO_INSTALL_MARKER ".notblind-install-root"
 !endif
 !ifndef MINERADIO_MARKER_APP_ID
-  !define MINERADIO_MARKER_APP_ID "com.mineradio.desktop"
+  !define MINERADIO_MARKER_APP_ID "com.notblind.desktop"
 !endif
 !ifndef MINERADIO_INSTALL_BRAND
-  !define MINERADIO_INSTALL_BRAND "MINERADIO"
+  !define MINERADIO_INSTALL_BRAND "NOT BLIND"
 !endif
 !ifndef MINERADIO_INSTALL_TITLE
-  !define MINERADIO_INSTALL_TITLE "Mineradio 安装"
+  !define MINERADIO_INSTALL_TITLE "Not Blind 安装"
 !endif
 !ifndef MINERADIO_INSTALL_NOTICE
   !define MINERADIO_INSTALL_NOTICE ""
@@ -82,7 +82,7 @@
 !macro customInstall
   FileOpen $0 "$INSTDIR\${MINERADIO_INSTALL_MARKER}" w
   ${IfNot} ${Errors}
-    FileWrite $0 "Mineradio install root$\r$\n"
+    FileWrite $0 "Not Blind install root$\r$\n"
     FileWrite $0 "appId=${MINERADIO_MARKER_APP_ID}$\r$\n"
     FileClose $0
   ${EndIf}
@@ -188,7 +188,7 @@ Function MineradioTintCommonControls
     ${EndIf}
     GetDlgItem $1 $0 1004
     ${If} $1 <> 0
-      SetCtlColors $1 "3257F7" "FFFFFF"
+      SetCtlColors $1 "C23A22" "FFFFFF"
     ${EndIf}
     GetDlgItem $1 $0 1006
     ${If} $1 <> 0
@@ -764,7 +764,7 @@ Function MineradioValidateInstallDir
       ${If} $2 == "1"
       ${AndIf} $3 != "1"
       ${AndIf} $4 != "1"
-        MessageBox MB_ICONSTOP|MB_OK "检测到这台电脑还有 D-Z 盘，Mineradio 不安装到 C 盘。请改选 D 盘或其它非 C 盘的 Mineradio 文件夹。$\r$\n$\r$\n如果电脑只有 C 盘，安装器会自动放行 C:\Mineradio。"
+        MessageBox MB_ICONSTOP|MB_OK "检测到这台电脑还有 D-Z 盘，Not Blind 不安装到 C 盘。请改选 D 盘或其它非 C 盘的 NotBlind 文件夹。$\r$\n$\r$\n如果电脑只有 C 盘，安装器会自动放行 C:\NotBlind。"
         Abort
       ${EndIf}
     ${EndIf}
@@ -777,7 +777,7 @@ Function MineradioValidateInstallDir
   ${If} $0 < $2
   ${OrIf} $1 != "\${MINERADIO_INSTALL_DIR_NAME}"
   ${AndIf} $1 != "\${MINERADIO_INSTALL_DIR_NAME_LOWER}"
-    MessageBox MB_ICONSTOP|MB_OK "安装目录必须是独立的 Mineradio 文件夹。请选择一个上级目录，安装器会自动创建 Mineradio 子文件夹。"
+    MessageBox MB_ICONSTOP|MB_OK "安装目录必须是独立的 NotBlind 文件夹。请选择一个上级目录，安装器会自动创建 NotBlind 子文件夹。"
     Abort
   ${EndIf}
 
@@ -805,7 +805,7 @@ Function MineradioValidateInstallDir
     Goto valid
   ${EndIf}
 
-  MessageBox MB_ICONSTOP|MB_OK "为避免卸载时误删其它文件，Mineradio 不能安装到已有文件的非专属目录。请新建或选择一个空的 Mineradio 文件夹。$\r$\n$\r$\n当前路径：$INSTDIR"
+  MessageBox MB_ICONSTOP|MB_OK "为避免卸载时误删其它文件，Not Blind 不能安装到已有文件的非专属目录。请新建或选择一个空的 NotBlind 文件夹。$\r$\n$\r$\n当前路径：$INSTDIR"
   Abort
 
   valid:
@@ -828,7 +828,7 @@ Function MineradioWelcomeShow
   ${NSD_CreateLabel} 22u 20u 120u 10u "${MINERADIO_INSTALL_BRAND}"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioSmallFont 1
-  SetCtlColors $0 "3257F7" "FFFFFF"
+  SetCtlColors $0 "C23A22" "FFFFFF"
 
   ${NSD_CreateLabel} 22u 42u 226u 30u "${MINERADIO_INSTALL_TITLE}"
   Pop $0
@@ -837,7 +837,7 @@ Function MineradioWelcomeShow
 
   ${NSD_CreateLabel} 22u 78u 36u 2u ""
   Pop $0
-  SetCtlColors $0 "" "3257F7"
+  SetCtlColors $0 "" "E2412B"
 
   ${NSD_CreateLabel} 22u 96u 238u 24u "为这台电脑安装 ${PRODUCT_NAME}。默认安装到 D:\${MINERADIO_INSTALL_DIR_NAME}，下一步可以自由选择其它位置。"
   Pop $0
@@ -847,7 +847,7 @@ Function MineradioWelcomeShow
   ${NSD_CreateLabel} 22u 130u 238u 12u "默认位置：$INSTDIR"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioTitleFont 1
-  SetCtlColors $0 "3257F7" "FFFFFF"
+  SetCtlColors $0 "C23A22" "FFFFFF"
 
   !ifdef MINERADIO_INTERNAL_BETA
     ${NSD_CreateLabel} 22u 150u 238u 28u "${MINERADIO_INSTALL_NOTICE}"
@@ -899,7 +899,7 @@ Function MineradioDirectoryShow
   ${NSD_CreateLabel} 22u 76u 238u 10u "安装目录"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioSmallFont 1
-  SetCtlColors $0 "3257F7" "FFFFFF"
+  SetCtlColors $0 "C23A22" "FFFFFF"
 
   ${NSD_CreateText} 22u 94u 178u 15u "$INSTDIR"
   Pop $MineradioDirectoryInput
@@ -1006,7 +1006,7 @@ Function un.MineradioValidateUninstallDir
   Call un.MineradioNormalizeInstallDir
   Pop $1
   ${If} $0 != $1
-    MessageBox MB_OK|MB_ICONSTOP "当前卸载路径不是 Mineradio 专属目录，已阻止卸载以避免误删其它文件。$\r$\n$\r$\n当前路径：$INSTDIR$\r$\n安全路径应为：$0"
+    MessageBox MB_OK|MB_ICONSTOP "当前卸载路径不是 Not Blind 专属目录，已阻止卸载以避免误删其它文件。$\r$\n$\r$\n当前路径：$INSTDIR$\r$\n安全路径应为：$0"
     SetErrorLevel 2
     Quit
   ${EndIf}
@@ -1016,7 +1016,7 @@ Function un.MineradioValidateUninstallDir
   Call un.MineradioInstallDirLooksOwned
   Pop $0
   ${If} $0 != "1"
-    MessageBox MB_OK|MB_ICONSTOP "无法确认当前目录属于 Mineradio，已阻止卸载以避免误删其它文件。$\r$\n$\r$\n当前路径：$INSTDIR"
+    MessageBox MB_OK|MB_ICONSTOP "无法确认当前目录属于 Not Blind，已阻止卸载以避免误删其它文件。$\r$\n$\r$\n当前路径：$INSTDIR"
     SetErrorLevel 2
     Quit
   ${EndIf}

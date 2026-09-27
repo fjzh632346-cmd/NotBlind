@@ -1,6 +1,6 @@
 // ============================================================
 // Update preview: external download page only.
-// Mineradio no longer downloads installers or applies resource patches.
+// Not Blind no longer downloads installers or applies resource patches.
 // ============================================================
 function isSafeUpdatePageUrl(value) {
   var raw = String(value || '').trim();

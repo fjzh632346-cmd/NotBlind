@@ -2201,6 +2201,7 @@ function updateStageLyrics3D(dt) {
     applyStageLyricLayoutOffset(lyricLayoutTarget, layoutX, layoutY, layoutZ);
     stageLyrics.group.position.copy(lyricLayoutTarget);
     stageLyricTargetQuaternion(lyricCoverWorldQuat, layoutTiltX, layoutTiltY);
+    if (typeof keepStageLyricReadable === 'function') keepStageLyricReadable(lyricTargetQuat, stageLyrics.group.position);
     stageLyrics.group.quaternion.copy(lyricTargetQuat);
   }
   function tickMesh(mesh, isCurrent) {

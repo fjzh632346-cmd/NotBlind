@@ -8,6 +8,12 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   toggleFullscreen: () => ipcRenderer.invoke('desktop-window-toggle-fullscreen'),
   exitFullscreenWindowed: () => ipcRenderer.invoke('desktop-window-exit-fullscreen-windowed'),
   getState: () => ipcRenderer.invoke('desktop-window-get-state'),
+  // [二改] 反馈
+  feedbackInfo: () => ipcRenderer.invoke('notblind-feedback-info'),
+  feedbackCapture: () => ipcRenderer.invoke('notblind-feedback-capture'),
+  feedbackSubmit: (payload) => ipcRenderer.invoke('notblind-feedback-submit', payload || {}),
+  // [二改][修窗口隐身] 闲置后第一次有操作时，让主进程把窗口画面重新接回屏幕
+  wakeCompositor: (reason) => ipcRenderer.send('notblind-window-wake', String(reason || '')),
   getGpuDiagnostics: () => ipcRenderer.invoke('mineradio-get-gpu-diagnostics'),
   getMemorySnapshot: () => ipcRenderer.invoke('mineradio-memory-get-snapshot'),
   configureMemoryReduct: (payload) => ipcRenderer.invoke('mineradio-memory-configure-auto', payload || {}),

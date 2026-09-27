@@ -73,6 +73,21 @@ function applyStageLyricLayoutOffset(target, x, y, z) {
     .addScaledVector(lyricCameraUp, y || 0)
     .addScaledVector(lyricCameraDir, z || 0);
 }
+// [二改][歌词翻正] 舞台被拖到背面或上下颠倒时，把歌词绕自身翻过来，始终正着朝向镜头（只转朝向，不动位置）
+var nbLyricReadFwd = new THREE.Vector3(), nbLyricReadTo = new THREE.Vector3(), nbLyricReadUp = new THREE.Vector3(), nbLyricReadCamUp = new THREE.Vector3();
+var nbLyricFlipY = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+var nbLyricFlipZ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI);
+function keepStageLyricReadable(quat, pos) {
+  if (!quat || typeof camera === 'undefined' || !camera) return quat;
+  nbLyricReadFwd.set(0, 0, 1).applyQuaternion(quat);
+  nbLyricReadTo.copy(camera.position);
+  if (pos) nbLyricReadTo.sub(pos);
+  if (nbLyricReadFwd.dot(nbLyricReadTo) < 0) quat.multiply(nbLyricFlipY);
+  nbLyricReadUp.set(0, 1, 0).applyQuaternion(quat);
+  nbLyricReadCamUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
+  if (nbLyricReadUp.dot(nbLyricReadCamUp) < 0) quat.multiply(nbLyricFlipZ);
+  return quat;
+}
 function stageLyricTargetQuaternion(baseQuat, tiltX, tiltY) {
   lyricTiltEuler.set((tiltX || 0) * Math.PI / 180, (tiltY || 0) * Math.PI / 180, 0, 'YXZ');
   lyricTiltQuat.setFromEuler(lyricTiltEuler);

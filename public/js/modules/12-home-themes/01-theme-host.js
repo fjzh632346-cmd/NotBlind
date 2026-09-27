@@ -7,7 +7,14 @@
 // ============================================================
 
 var HOME_THEME_STORAGE_KEY = 'mineradio-home-theme-v1';
-var homeThemeRegistry = [{ id: 'classic', name: '原版' }];
+// 旧版透明毛玻璃主页（'classic'）已从主题列表里去掉：拉绳和设置里都不再出现。
+// 只有在一个主题都没注册成功（主题脚本加载失败）时，才退回显示它，免得主页空白。
+var homeThemeRegistry = [];
+var HOME_THEME_DEFAULT_ID = 'echo';
+function homeThemeFallbackId() {
+  if (homeThemeDef(HOME_THEME_DEFAULT_ID)) return HOME_THEME_DEFAULT_ID;
+  return homeThemeRegistry.length ? homeThemeRegistry[0].id : 'classic';
+}
 var homeThemeHost = {
   current: 'classic',
   instance: null,
@@ -27,6 +34,15 @@ function registerHomeTheme(def) {
   if (!def || !def.id || typeof def.create !== 'function') return;
   homeThemeRegistry = homeThemeRegistry.filter(function (t) { return t.id !== def.id; });
   homeThemeRegistry.push(def);
+  // 还停在旧版（启动时主题还没注册 / 存的是 classic）就切到默认主题
+  if (homeThemeHost.current === 'classic' && homeThemeHost.booted) {
+    var want = readHomeThemePreference();
+    if (homeThemeDef(want) || def.id === HOME_THEME_DEFAULT_ID || !homeThemeDef(HOME_THEME_DEFAULT_ID)) {
+      homeThemeHost.current = homeThemeDef(want) ? want : homeThemeFallbackId();
+      homeThemeHost.lastSignature = '';
+      try { syncHomeThemeVisibility(); } catch (_e) { }
+    }
+  }
   renderHomeThemeSettingsSeg();
 }
 
@@ -34,8 +50,12 @@ function homeThemeDef(id) {
   return homeThemeRegistry.filter(function (t) { return t.id === id; })[0] || null;
 }
 
+// 调频主题已换成午后窗影：存的是调频的，自动改成午后窗影
+var HOME_THEME_RENAMED = { 'fm-dial': 'afternoon' };
 function readHomeThemePreference() {
-  try { return localStorage.getItem(HOME_THEME_STORAGE_KEY) || ''; } catch (_e) { return ''; }
+  var v = '';
+  try { v = localStorage.getItem(HOME_THEME_STORAGE_KEY) || ''; } catch (_e) { v = ''; }
+  return HOME_THEME_RENAMED[v] || v;
 }
 function writeHomeThemePreference(id) {
   try { localStorage.setItem(HOME_THEME_STORAGE_KEY, id); } catch (_e) { }
@@ -59,6 +79,22 @@ function homeThemeCoversScene() {
   return !!(homeThemeHost.visible && homeThemeHost.current !== 'classic' && homeThemeHost.instance && !homeThemeHost.switching);
 }
 
+// [二改][显存] 3D 画布要不要缩小，用这个判断：和上面不同，它不看"正在切换主题"——
+// 主题之间切换时黑底一直盖着 3D 场景，不必先放大再缩回去（那样会白白分配两次整屏显存、还顿一下）
+function homeThemeHidesSceneForPower() {
+  return !!(homeThemeHost.visible && homeThemeHost.current !== 'classic' && homeThemeHost.instance && homeThemeHost.shownAt
+    && performance.now() - homeThemeHost.shownAt > 400);
+}
+var homeThemePowerTimer = 0;
+function homeThemeSyncRendererPower(delayMs) {
+  if (homeThemePowerTimer) { clearTimeout(homeThemePowerTimer); homeThemePowerTimer = 0; }
+  var run = function () {
+    homeThemePowerTimer = 0;
+    if (typeof applyRendererPowerMode === 'function') { try { applyRendererPowerMode(); } catch (_e) { } }
+  };
+  if (delayMs > 0) homeThemePowerTimer = setTimeout(run, delayMs); else run();
+}
+
 function homeThemeShell() {
   return document.getElementById('desktop-window-shell') || document.body;
 }
@@ -68,9 +104,17 @@ function ensureHomeThemeRoot() {
   homeThemeInjectStyle('host', [
     '#home-theme-root{position:fixed;inset:0;z-index:5;overflow:hidden;background:#000;opacity:0;pointer-events:none;transition:opacity .42s ease;contain:strict}',
     '#home-theme-root.on{opacity:1;pointer-events:auto}',
+    // [二改][修穿透] 主题收起（去播放页）后只是变透明：主题里不少按钮自己写了 pointer-events:auto，
+    // 会无视父级的 none，透过播放页照样被点到（比如点到"下一首"）。收起时整棵树一律不接鼠标。
+    '#home-theme-root:not(.on),#home-theme-root:not(.on) *{pointer-events:none!important}',
+    'body:not(.empty-home-active) #home-theme-cord,body:not(.empty-home-active) #home-theme-cord *,body.splash-active #home-theme-cord *,body.immersive-mode #home-theme-cord *{pointer-events:none!important}',
     '#home-theme-root .hth-stage{position:absolute;inset:0;transition:opacity .32s ease,filter .32s ease}',
     '#home-theme-root.switching .hth-stage{opacity:0;filter:blur(6px)}',
     'body.home-theme-on #empty-home,body.home-theme-on #search-area,body.home-theme-on #bottom-bar,body.home-theme-on #bottom-handle,body.home-theme-on #thumb-wrap{visibility:hidden!important;opacity:0!important;pointer-events:none!important}',
+    // [二改][流畅度] 桌面背景（可操作）状态下，index.css 里有一条更具体的规则把原版主页强制显示出来，
+    // 结果它藏在主题下面照样跑转盘、浮动卡片、毛玻璃模糊这些每帧动画。这里用更具体的选择器盖回去，
+    // 并用 content-visibility 让浏览器干脆跳过它的排版和绘制（动画也就不再出帧）。
+    'body.home-theme-on #empty-home,body.desktop-wallpaper-mode.desktop-wallpaper-interactive.empty-home-active.home-theme-on #empty-home{visibility:hidden!important;opacity:0!important;pointer-events:none!important;content-visibility:hidden}',
     // 主题页面上保留窗口按钮（最小化 / 全屏 / 关闭）和右上角账号区；主题要给它们留位置（见 --hth-safe-*）
     '#home-theme-root{--hth-safe-r:300px;--hth-safe-t:112px}',
     // 浅色主题（纸面）上，把窗口按钮和账号按钮换成油墨色，免得白色玻璃按钮看不清
@@ -95,7 +139,7 @@ function ensureHomeThemeRoot() {
   ].join('\n'));
   var root = document.createElement('div');
   root.id = 'home-theme-root';
-  root.setAttribute('aria-label', 'Mineradio 主页');
+  root.setAttribute('aria-label', 'Not Blind 主页');
   var stage = document.createElement('div');
   stage.className = 'hth-stage';
   root.appendChild(stage);
@@ -158,11 +202,25 @@ function createHomeThemeInstance(id) {
   try { if (homeThemeHost.instance && homeThemeHost.instance.update) homeThemeHost.instance.update(buildHomeThemeModel()); } catch (e) { console.warn('[HomeTheme] first update', e); }
 }
 
+// 右上角按钮明暗：主题可以写死 chrome:'light'，也可以给一个函数（随时段变深浅的主题，比如午后窗影入夜变暗）
+function homeThemeChromeTone(def) {
+  if (!def) return 'dark';
+  var c = def.chrome;
+  if (typeof c === 'function') { try { c = c(); } catch (_e) { c = 'dark'; } }
+  return c === 'light' ? 'light' : 'dark';
+}
+function syncHomeThemeChromeTone() {
+  if (!homeThemeHost.visible && !document.body.classList.contains('home-theme-on')) return;
+  var light = homeThemeChromeTone(homeThemeDef(homeThemeHost.current)) === 'light';
+  if (document.body.classList.contains('hth-chrome-light') !== light) document.body.classList.toggle('hth-chrome-light', light);
+}
+
 function homeThemeStartTicker() {
   if (homeThemeHost.tickTimer) return;
   // 进度、时钟每秒刷新一次（模型很轻）
   homeThemeHost.tickTimer = setInterval(function () {
     if (!homeThemeHost.visible || document.hidden) return;
+    syncHomeThemeChromeTone();
     homeThemeNotify();
   }, 1000);
 }
@@ -173,7 +231,12 @@ function homeThemeStopTicker() {
 
 function syncHomeThemeVisibility() {
   var body = document.body;
-  var homeShown = body.classList.contains('empty-home-active') && !body.classList.contains('splash-active') && !body.classList.contains('immersive-mode');
+  // [二改][开场直进主页] 开场动画期间主题可以提前在开场页下面搭好（homeThemePrewarmUnderSplash），
+  // 这样黑线张开时缝里就是主页，不会先露出一下播放页；主页正式显示（empty-home-active）后这个标记就退场
+  if (homeThemeHost.splashPrewarm && body.classList.contains('empty-home-active')) homeThemeHost.splashPrewarm = false;
+  var homeShown = !body.classList.contains('immersive-mode') && (
+    homeThemeHost.splashPrewarm ||
+    (body.classList.contains('empty-home-active') && !body.classList.contains('splash-active')));
   var wantTheme = homeShown && homeThemeHost.current !== 'classic' && !!homeThemeDef(homeThemeHost.current);
   // body 的 class 变化很频繁，状态没变就不做事
   var signature = (wantTheme ? 1 : 0) + '|' + homeThemeHost.current + '|' + homeThemeHost.instanceId + '|' + (homeShown ? 1 : 0);
@@ -187,23 +250,44 @@ function syncHomeThemeVisibility() {
     } else if (homeThemeHost.instance && homeThemeHost.instance.resume && !homeThemeHost.visible) {
       homeThemeHost.instance.resume();
     }
+    if (!homeThemeHost.visible) homeThemeHost.shownAt = performance.now();
     homeThemeHost.visible = true;
+    homeThemeHost.hideToken = (homeThemeHost.hideToken || 0) + 1;
     homeThemeHost.root.classList.add('on');
+    homeThemeHost.root.inert = false;
     body.classList.add('home-theme-on');
-    var chromeDef = homeThemeDef(homeThemeHost.current);
-    body.classList.toggle('hth-chrome-light', !!(chromeDef && chromeDef.chrome === 'light'));
+    syncHomeThemeChromeTone();
     homeThemeStartTicker();
     homeThemeNotify();
   } else {
+    var wasVisible = homeThemeHost.visible;
     if (homeThemeHost.visible && homeThemeHost.instance && homeThemeHost.instance.pause) homeThemeHost.instance.pause();
     homeThemeHost.visible = false;
-    if (homeThemeHost.root) homeThemeHost.root.classList.remove('on');
+    homeThemeHost.shownAt = 0;
+    homeThemeHost.splashParked = false;
+    if (homeThemeHost.root) {
+      var hideRoot = homeThemeHost.root;
+      hideRoot.inert = true;
+      // [二改][去播放页更顺] 先让 3D 画布恢复原尺寸、在还盖着的主题底下画上两帧，再开始淡出：
+      // 恢复尺寸后的第一帧最重，放在看不见的时候画掉，淡出过程就不会卡一下
+      var hideTok = homeThemeHost.hideToken = (homeThemeHost.hideToken || 0) + 1;
+      if (wasVisible && hideRoot.classList.contains('on') && !document.hidden) {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            if (hideTok === homeThemeHost.hideToken && !homeThemeHost.visible) hideRoot.classList.remove('on');
+          });
+        });
+      } else hideRoot.classList.remove('on');
+    }
     body.classList.remove('home-theme-on', 'hth-chrome-light');
     homeThemeStopTicker();
     // 切回原版时释放主题资源（WebGL 上下文等）
     if (homeThemeHost.current === 'classic' && homeThemeHost.instance) destroyHomeThemeInstance();
   }
   syncHomeThemeBackdrop();
+  // [二改][显存] 主题撤走：3D 画布立刻恢复原尺寸；主题盖上：等它淡入完（0.42 秒）再缩小，
+  // 免得淡入过程中底下的 3D 画面先变没了
+  homeThemeSyncRendererPower(homeThemeHost.visible ? 460 : 0);
   // QQ 退出 / 换号时清掉上一个账号的歌单数据（换号会自动重新加载）
   if (typeof homeThemeCheckQQAccount === 'function') homeThemeCheckQQAccount();
   if (homeShown && homeThemeLoggedIn('qq')) homeThemeLoadQQPool(false);
@@ -211,7 +295,34 @@ function syncHomeThemeVisibility() {
 
 // ---------- 播放页背景：离开主页后，3D 舞台后面换成和主题呼应的背景 ----------
 // 3D 粒子和动态效果不动，只在它们后面垫一层很克制的背景。用户自己设置了背景图、视频或壁纸时不覆盖。
-var homeThemeBackdrop = { el: null, id: '' };
+var homeThemeBackdrop = { el: null, id: '', cache: Object.create(null), pending: '', pendingTimer: 0 };
+// [二改][切主题更顺] 播放页背景只在播放页看得到（主页上被主题整个盖住），
+// 所以切主题时不再当场画背景（星图要画 1800×1800 的星空、午后窗影要做模糊，原来还要编码成 PNG，
+// 切换那一下能卡上几百毫秒），改成主题换好、空闲下来再画；画好的留着，下次切回来直接用。
+// 万一还没画好就去了播放页，离开主页那一刻补画（这时主题还盖着，看不出来）。
+function homeThemeBackdropBuildNow() {
+  var st = homeThemeBackdrop;
+  if (st.pendingTimer) { clearTimeout(st.pendingTimer); st.pendingTimer = 0; }
+  if (st.pendingIdle && window.cancelIdleCallback) { try { cancelIdleCallback(st.pendingIdle); } catch (_e) { } }
+  st.pendingIdle = 0;
+  var id = st.pending;
+  st.pending = '';
+  if (!id || id !== st.id || !st.el) return;
+  var def = homeThemeDef(id), bd = def && def.backdrop;
+  if (!bd || typeof bd.build !== 'function') return;
+  try { bd.build(st.el); } catch (e) { console.warn('[HomeTheme] backdrop', e); }
+}
+function homeThemeScheduleBackdropBuild() {
+  var st = homeThemeBackdrop;
+  if (st.pendingTimer || st.pendingIdle) return;
+  // 先让新主题的开场几帧过去，再找空闲时间画
+  st.pendingTimer = setTimeout(function () {
+    st.pendingTimer = 0;
+    if (!st.pending) return;
+    if (window.requestIdleCallback) st.pendingIdle = requestIdleCallback(function () { st.pendingIdle = 0; homeThemeBackdropBuildNow(); }, { timeout: 1500 });
+    else homeThemeBackdropBuildNow();
+  }, 900);
+}
 function syncHomeThemeBackdrop() {
   var id = homeThemeHost.current;
   var def = id !== 'classic' ? homeThemeDef(id) : null;
@@ -222,6 +333,7 @@ function syncHomeThemeBackdrop() {
       '#hth-backdrop{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0;transition:opacity .9s ease;overflow:hidden;contain:strict}',
       '#hth-backdrop.on{opacity:1}',
       '#hth-backdrop.idle,#hth-backdrop.idle *{animation-play-state:paused!important}',
+      '#hth-backdrop canvas.hbd-cv{display:block;width:100%;height:100%}',
       'body.custom-background-video #hth-backdrop,body.wallpaper-engine-active #hth-backdrop,body.custom-window-transparent #hth-backdrop,body.desktop-wallpaper-mode #hth-backdrop,body.custom-background-override:not(.custom-background-flat) #hth-backdrop{display:none}',
     ].join('\n'));
     var el = document.createElement('div');
@@ -234,16 +346,105 @@ function syncHomeThemeBackdrop() {
     homeThemeBackdrop.el = el;
   }
   var box = homeThemeBackdrop.el;
-  if (homeThemeBackdrop.id !== (bd ? id : '')) {
-    homeThemeBackdrop.id = bd ? id : '';
+  var st = homeThemeBackdrop;
+  var wantId = bd ? id : '';
+  if (st.id !== wantId) {
+    // 把上一个主题已经画好的背景收起来留着
+    if (st.id && !st.pending && box.firstChild) {
+      var keep = [];
+      while (box.firstChild) keep.push(box.removeChild(box.firstChild));
+      st.cache[st.id] = { nodes: keep, at: Date.now() };
+    }
+    st.pending = '';
+    st.id = wantId;
     box.className = bd ? 'hbd-' + id : '';
-    box.innerHTML = bd ? (bd.html || '') : '';
+    box.innerHTML = '';
     if (bd && bd.css) homeThemeInjectStyle('backdrop-' + id, bd.css);
-    if (bd && typeof bd.build === 'function') { try { bd.build(box); } catch (e) { console.warn('[HomeTheme] backdrop', e); } }
+    var cached = bd && st.cache[id];
+    // 缓存最多留 30 分钟（午后窗影的背景色温跟着时段走）
+    if (cached && Date.now() - cached.at < 30 * 60 * 1000) {
+      cached.nodes.forEach(function (n) { box.appendChild(n); });
+    } else if (bd) {
+      delete st.cache[id];
+      box.innerHTML = bd.html || '';
+      if (typeof bd.build === 'function') {
+        st.pending = id;
+        // 一开始就在播放页（主题没盖着）就当场画；否则等空闲
+        if (!homeThemeHost.visible && !homeThemeHost.switching && !document.body.classList.contains('splash-active')) homeThemeBackdropBuildNow();
+        else homeThemeScheduleBackdropBuild();
+      }
+    }
   }
+  // 要去播放页了，背景还没画好：趁主题还盖着补画
+  if (st.pending && !homeThemeHost.visible && !document.body.classList.contains('splash-active')) homeThemeBackdropBuildNow();
   box.classList.toggle('on', !!bd);
   // 主页盖住舞台、窗口不可见时，背景里的 CSS 动画暂停
   box.classList.toggle('idle', !!homeThemeHost.visible || document.hidden);
+}
+
+// ---------- 开场动画期间先把主页主题搭在开场页下面 ----------
+// 以前要等黑线张开到一半才创建主题，张开的缝里先露出的是 3D 播放页；创建主题那一下还会让张开的动画卡一下。
+// 现在开场可以点击时（或点击的那一刻）就把主题建好、盖在 3D 场景上面，开场页一张开，缝里就是主页。
+function homeThemeSplashWillShowHome() {
+  try {
+    if (typeof immersiveMode !== 'undefined' && immersiveMode) return false;
+    if (typeof shouldShowEmptyHomeAfterSplash === 'function' && shouldShowEmptyHomeAfterSplash()) return true;
+    if (typeof shouldForceEmptyHomeAfterSplash === 'function' && shouldForceEmptyHomeAfterSplash()) return true;
+  } catch (_e) { }
+  return false;
+}
+function homeThemePrewarmUnderSplash() {
+  if (!homeThemeHost.booted) return false;
+  if (!document.body.classList.contains('splash-active')) return false;
+  if (homeThemeHost.current === 'classic' || !homeThemeDef(homeThemeHost.current)) return false;
+  if (!homeThemeSplashWillShowHome()) return false;
+  if (homeThemeHost.splashPrewarm && homeThemeHost.instance) return true;
+  homeThemeHost.splashPrewarm = true;
+  homeThemeHost.lastSignature = '';
+  var root = ensureHomeThemeRoot();
+  // 在开场页底下直接就位，不用淡入
+  root.style.transition = 'none';
+  syncHomeThemeVisibility();
+  void root.offsetWidth;
+  root.style.transition = '';
+  // 开场页一直不点的话，主题画完开头这几秒就先停下，别在看不见的地方一直占着显卡
+  if (homeThemeHost.parkTimer) clearTimeout(homeThemeHost.parkTimer);
+  homeThemeHost.parkTimer = setTimeout(function () {
+    homeThemeHost.parkTimer = 0;
+    var s = document.getElementById('splash');
+    if (!homeThemeHost.splashPrewarm || !homeThemeHost.visible || !homeThemeHost.instance) return;
+    if (!s || s.classList.contains('exiting') || s.classList.contains('hide')) return;
+    if (homeThemeHost.instance.pause) { try { homeThemeHost.instance.pause(); homeThemeHost.splashParked = true; } catch (_e) { } }
+  }, 1800);
+  return !!homeThemeHost.instance;
+}
+// 开场页开始张开：确认还要进主页（没进就撤掉），停着的主题接着动
+function homeThemeRevealFromSplash() {
+  if (homeThemeHost.parkTimer) { clearTimeout(homeThemeHost.parkTimer); homeThemeHost.parkTimer = 0; }
+  if (!homeThemeHost.splashPrewarm) {
+    homeThemePrewarmUnderSplash();
+  } else if (!homeThemeSplashWillShowHome()) {
+    homeThemeHost.splashPrewarm = false;
+    homeThemeHost.lastSignature = '';
+    syncHomeThemeVisibility();
+    return;
+  }
+  if (homeThemeHost.splashParked && homeThemeHost.visible && homeThemeHost.instance && homeThemeHost.instance.resume) {
+    try { homeThemeHost.instance.resume(); } catch (_e) { }
+  }
+  homeThemeHost.splashParked = false;
+}
+// 开场结束：标记退场，之后完全按主页是否显示来决定
+function homeThemeEndSplashPrewarm() {
+  if (homeThemeHost.parkTimer) { clearTimeout(homeThemeHost.parkTimer); homeThemeHost.parkTimer = 0; }
+  if (!homeThemeHost.splashPrewarm) return;
+  homeThemeHost.splashPrewarm = false;
+  if (homeThemeHost.splashParked && homeThemeHost.instance && homeThemeHost.instance.resume) {
+    try { homeThemeHost.instance.resume(); } catch (_e) { }
+  }
+  homeThemeHost.splashParked = false;
+  homeThemeHost.lastSignature = '';
+  syncHomeThemeVisibility();
 }
 
 // 原版"点主页空白处就关掉主页"的全局捕获监听会把主题里的点击吞掉（结果点什么都跳到正在播放），这里让它忽略主题层
@@ -286,7 +487,7 @@ function syncHomeThemeBackdrop() {
 
 function setHomeTheme(id, opts) {
   opts = opts || {};
-  if (!homeThemeDef(id)) id = 'classic';
+  if (!homeThemeDef(id)) id = homeThemeFallbackId();
   // 有切换在路上时，和"将要切到的"比，而不是和还没换掉的 current 比
   var target = homeThemeHost.switchTimer ? homeThemeHost.pending : homeThemeHost.current;
   if (id === target && !opts.force) return;
@@ -311,10 +512,13 @@ function setHomeTheme(id, opts) {
       homeThemeHost.switchTimer = 0;
       homeThemeHost.pending = '';
       apply();
+      // [二改][切主题更顺] 新主题的第一帧（建画布、编译着色器）最重，先在看不见的时候画掉两帧再淡入
       requestAnimationFrame(function () {
-        if (homeThemeHost.switchTimer) return; // 又有新的切换开始了，淡出态留给它
-        root.classList.remove('switching');
-        homeThemeHost.switching = false;
+        requestAnimationFrame(function () {
+          if (homeThemeHost.switchTimer) return; // 又有新的切换开始了，淡出态留给它
+          root.classList.remove('switching');
+          homeThemeHost.switching = false;
+        });
       });
     }, 320);
   } else {
@@ -439,6 +643,8 @@ function createHomeThemeCord() {
 
 // ---------- 设置面板 ----------
 function renderHomeThemeSettingsSeg() {
+  // [二改] 主页主题的选择挪到右上角「视觉」面板，设置里不再放这一排按钮；这里只通知视觉面板刷新选中态
+  if (typeof refreshNbVisualSheet === 'function') { refreshNbVisualSheet(); return; }
   var seg = document.getElementById('home-theme-seg');
   if (!seg) {
     var anchor = document.getElementById('close-behavior-seg');
@@ -464,6 +670,7 @@ function renderHomeThemeSettingsSeg() {
 }
 
 function openHomeThemeSettings() {
+  if (typeof openNbVisualSheet === 'function') { openNbVisualSheet('home'); return; }
   var fab = document.getElementById('fx-fab');
   if (fab) fab.click();
 }
@@ -473,7 +680,8 @@ function openHomeThemeSettings() {
   function start() {
     ensureHomeThemeRoot();
     var saved = readHomeThemePreference();
-    homeThemeHost.current = homeThemeDef(saved) ? saved : 'classic';
+    homeThemeHost.booted = true;
+    homeThemeHost.current = homeThemeDef(saved) ? saved : homeThemeFallbackId();
     renderHomeThemeSettingsSeg();
     syncHomeThemeBackdrop();
     new MutationObserver(function () { syncHomeThemeVisibility(); })

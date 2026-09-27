@@ -78,6 +78,7 @@ function setPreset(p, opts) {
   if (p === SKULL_PRESET_INDEX) loadSkullParticleAsset();
   if (changed && window.MineradioSonicTopography) MineradioSonicTopography.onPresetChange(prev, p, { scene: scene, fx: fx });
   if (changed && window.MineradioSonicWorkshop) MineradioSonicWorkshop.onPresetChange(prev, p, { scene: scene, fx: fx });
+  if (changed && window.NotBlindStageFx) NotBlindStageFx.onPresetChange(prev, p, { scene: scene, fx: fx });
   uniforms.uPreset.value = p;
   refreshPresetGrid();
   if (typeof updateSonicSeriesControlVisibility === 'function') updateSonicSeriesControlVisibility();

@@ -20,7 +20,7 @@ function desktopWallpaperKeepsPlayerConsoleVisible() {
   if (!body
     || !body.classList.contains('desktop-wallpaper-mode')
     || !body.classList.contains('desktop-wallpaper-interactive')) return false;
-  // Home and the 3D shelf are complete Mineradio surfaces of their own. In the
+  // Home and the 3D shelf are complete Not Blind surfaces of their own. In the
   // ordinary desktop stage, however, allowing the generic inactivity timer to
   // hide the only player console makes the renderer look as if it fell behind
   // the wallpaper/Explorer plane.
@@ -348,6 +348,24 @@ function syncCursorAutoHideMode() {
   window.addEventListener(type, revealCursorForActivity, { passive: true, capture: true });
 });
 syncCursorAutoHideMode();
+
+// [二改][修窗口隐身] 窗口模式下闲置一段时间后整个窗口可能"隐身"（还能点、看不见）。
+// 闲置超过 12 秒后的第一次鼠标 / 键盘操作，通知主进程把窗口画面重新接回屏幕。
+(function installWindowWakeKick() {
+  var api = window.desktopWindow;
+  if (!api || typeof api.wakeCompositor !== 'function') return;
+  var lastInputAt = performance.now();
+  function onInput() {
+    var now = performance.now();
+    if (now - lastInputAt > 12000) {
+      try { api.wakeCompositor('input-after-idle'); } catch (_e) { }
+    }
+    lastInputAt = now;
+  }
+  ['pointermove', 'pointerdown', 'keydown', 'wheel'].forEach(function (type) {
+    window.addEventListener(type, onInput, { passive: true, capture: true });
+  });
+})();
 
 // ============================================================
 //  指针 / 拖拽控制

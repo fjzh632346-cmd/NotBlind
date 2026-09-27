@@ -147,7 +147,7 @@ class BuiltInPlaylistLibrary {
       source: 'mineradio',
       builtin: true,
       name: playlist.name,
-      creator: 'Mineradio',
+      creator: 'Not Blind',
       trackCount: playlist.tracks.length,
       cover: cleanText(first.cover, '', 4096),
       createdAt: playlist.createdAt,

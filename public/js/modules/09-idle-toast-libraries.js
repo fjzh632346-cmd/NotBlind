@@ -35,7 +35,8 @@ var idleGuideInteraction = {
 function setIdleGuideVisible(show, interactive) {
   document.body.classList.toggle('idle-guide-on', show);
   document.body.classList.toggle('idle-guide-interactive', !!interactive);
-  if (!interactive) document.body.classList.remove('idle-guide-dragging');
+  // [二改][流畅度] toggle(…, false) 不会在类名本来就不在时重写 class 属性（remove 会，并唤醒一串 body 观察者）
+  if (!interactive) document.body.classList.toggle('idle-guide-dragging', false);
   if (idleGuideVisible === show) return;
   idleGuideVisible = show;
 }
@@ -492,84 +493,55 @@ function showToast(msg) {
   toastTimer = setTimeout(function () { t.classList.remove('show'); }, 2600);
 }
 
+// [二改] 使用引导按新版界面重写：去掉 DIY，右上角是「视觉」和「设置」。
+// 选择器 #nb-visual-btn / #nb-settings-btn 是虚拟目标，由灵动岛（07-top-island.js）换成岛上真实按钮的位置。
 var visualGuideSteps = [
   {
     target: 'stage',
     kicker: '01 / Welcome',
-    title: 'Mineradio 是用来听歌的视觉播放器',
-    body: '它不是单纯歌单页：搜索或导入一首歌后，封面、歌词、粒子和镜头会跟着音乐一起动。'
+    title: 'Not Blind 是一台看得见的收音机',
+    body: '搜索或导入一首歌，封面、歌词、粒子和镜头就会跟着音乐一起动。'
   },
   {
     selector: '#search-box',
     kicker: '02 / Play',
     title: '从搜索或导入开始',
-    body: '输入歌名、歌手或关键词即可播放；如果有本地音乐，也可以用导入入口直接放进舞台。'
+    body: '把鼠标移到屏幕最上方就会出现搜索框；输入歌名、歌手即可播放，也能把本地音乐拖进来。'
   },
   {
     selector: '#bottom-bar',
     kicker: '03 / Control',
-    title: '播放以后看底部控制台',
-    body: '播放、切歌、进度、队列和歌词都集中在底部，先把它当作一个正常播放器使用就可以。'
-  },
-  {
-    selector: '#user-btn',
-    kicker: '04 / Account',
-    title: '登录只是为了同步你的音乐库',
-    body: '登录后会同步歌单、红心和播客；不登录也可以搜索和播放，不会强制卡住你。'
-  },
-  {
-    target: 'shelf',
-    kicker: '05 / Visual',
-    title: '进阶视觉都放在舞台周围',
-    body: '右侧 3D 歌单架和 DIY 玩家模式是进阶入口；先播放一首歌，再慢慢调视觉效果。'
-  },
-  {
-    selector: '#diy-mode-btn',
-    kicker: '06 / DIY',
-    title: '高级功能在 DIY 玩家模式',
-    body: '视觉控制台、上传/封面、自定义歌词、音质和更多面板都会在这里展开。'
-  }
-];
-var visualGuideStepsDiy = [
-  {
-    selector: '#diy-mode-btn',
-    kicker: '01 / DIY',
-    title: 'DIY 玩家模式已展开',
-    body: '这里可以随时切回默认模式。DIY 模式会显示完整控制台、上传、视觉面板和高级调参。'
-  },
-  {
-    selector: '#search-box',
-    kicker: '02 / Search',
-    title: '搜索源和导入入口会展开',
-    body: '顶部搜索支持更多来源切换，上传歌曲、封面等入口也会在 DIY 模式中显示。'
+    title: '播放控制在底部',
+    body: '播放、切歌、进度、音质、队列和歌词都在这一条里，鼠标靠近底部就会出现。'
   },
   {
     selector: '#playlist-panel',
-    kicker: '03 / Library',
-    title: '左侧是完整歌单和队列',
-    body: '靠近左侧边缘可以打开歌单/队列面板，在这里管理队列、个人歌单和播客。'
+    kicker: '04 / Library',
+    title: '左边缘是歌单和队列',
+    body: '鼠标贴着屏幕左边停一下，歌单、队列和播客就会滑出来。'
   },
   {
-    selector: '#fx-panel',
-    kicker: '04 / Visual Lab',
-    title: '右侧是视觉控制台',
-    body: '靠近右下角或点击视觉按钮，可以调节粒子、歌词、镜头、3D 歌单架和更多视觉参数。'
+    selector: '#user-btn',
+    kicker: '05 / Account',
+    title: '登录只是为了同步音乐库',
+    body: '右上角的小岛：点头像登录网易云、QQ 音乐等平台，同步歌单和每日推荐；不登录也能搜索播放。'
   },
   {
-    selector: '#quality-control',
-    kicker: '05 / Controls',
-    title: '高级播放控制会补全',
-    body: '音质、播放顺序、收藏、歌词源和更多按钮会在 DIY 模式中完整显示。'
+    selector: '#nb-visual-btn',
+    kicker: '06 / Visual',
+    title: '「视觉」：换主页、换播放页效果',
+    body: '在这里挑主页主题（回声、星图、午后窗影、孔版海报），以及播放页的粒子视觉预设，点一下就换。'
   },
   {
-    target: 'shelf',
-    kicker: '06 / Shelf',
-    title: '3D 歌单架支持直接打开',
-    body: '右侧的 3D 歌单架会在靠近时半透明浮现，点击卡片可打开歌单，点卡片里的播放按钮可直接播放整张歌单。'
+    selector: '#nb-settings-btn',
+    kicker: '07 / Settings',
+    title: '「设置」：所有细节都在这里',
+    body: '颜色、歌词、粒子动效、歌单架、性能和缓存都能细调，顶部可以直接搜索功能。以后想再看这份引导，也在设置 › 系统里。'
   }
 ];
+var visualGuideStepsDiy = visualGuideSteps;
 function activeVisualGuideSteps() {
-  return diyPlayerMode ? visualGuideStepsDiy : visualGuideSteps;
+  return visualGuideSteps;
 }
 function visualGuideWasSeen() {
   try { return localStorage.getItem(VISUAL_GUIDE_SEEN_STORE_KEY) === '1'; } catch (e) { return true; }
@@ -594,6 +566,7 @@ function startVisualGuide(opts) {
   if (immersiveMode) setImmersiveMode(false);
   closeMiniQueue();
   closeUploadTip(false);
+  if (typeof closeNbSheets === 'function') closeNbSheets();
   visualGuideActive = true;
   document.body.classList.add('visual-guide-active');
   visualGuideStep = 0;
@@ -698,7 +671,11 @@ function guideTargetRect(step) {
     layoutFullscreenDiyZone();
     document.body.classList.add('fullscreen-diy-peek');
   }
-  var target = step && step.selector ? document.querySelector(useFullscreenDiyTarget ? '#fullscreen-diy-btn' : step.selector) : null;
+  var targetSelector = step && step.selector ? step.selector : '';
+  // 没有灵动岛时，「视觉」「设置」落到标题栏里的旧按钮（已改成视觉 / 设置入口）
+  if (targetSelector === '#nb-visual-btn' && !document.querySelector(targetSelector)) targetSelector = '#diy-mode-btn';
+  if (targetSelector === '#nb-settings-btn' && !document.querySelector(targetSelector)) targetSelector = '#visual-guide-btn';
+  var target = targetSelector ? document.querySelector(useFullscreenDiyTarget ? '#fullscreen-diy-btn' : targetSelector) : null;
   if (target) {
     var style = window.getComputedStyle(target);
     var rect = target.getBoundingClientRect();

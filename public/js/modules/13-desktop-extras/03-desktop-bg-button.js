@@ -42,13 +42,16 @@
     var st = typeof desktopWallpaperRuntimeState !== 'undefined' ? desktopWallpaperRuntimeState : {};
     var on = enabledNow();
     var pending = busy || st.attaching === true;
+    // [二改][流畅度] 每 0.5 秒刷一次，只在真的变了时才写属性（写同样的值也会叫醒盯着这个按钮的灵动岛等观察者）
+    function attr(name, value) { if (btn.getAttribute(name) !== value) btn.setAttribute(name, value); }
     btn.classList.toggle('is-on', on);
-    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-    btn.setAttribute('aria-busy', pending ? 'true' : 'false');
-    btn.hidden = st.supported === false;
+    attr('aria-pressed', on ? 'true' : 'false');
+    attr('aria-busy', pending ? 'true' : 'false');
+    var hide = st.supported === false;
+    if (btn.hidden !== hide) btn.hidden = hide;
     var label = on ? '回到窗口' : '设为桌面背景';
-    btn.title = label;
-    btn.setAttribute('aria-label', label);
+    attr('title', label);
+    attr('aria-label', label);
     var want = on ? 'exit' : 'enter';
     if (btn.getAttribute('data-icon') !== want) {
       btn.innerHTML = on ? ICON_EXIT : ICON_ENTER;

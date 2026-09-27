@@ -5,7 +5,8 @@
 // 没人在操作时，没必要跑满刷新率。
 //   - 锁定软件操作（纯背景）：24 帧
 //   - 桌面背景里但 3 秒没动鼠标/键盘：30 帧
-//   - 正在操作、拼图过场、普通窗口：不限制
+//   - 桌面背景里正在操作：60 帧（高刷屏上不再跑满 144/165 帧整屏重画）
+//   - 拼图过场、普通窗口：不限制
 // 做法：接管 requestAnimationFrame，把所有动画回调攒到同一拍里按目标帧率统一放行，
 // 画面仍然跟显示器同步，只是跳过一部分刷新。
 // ============================================================
@@ -13,6 +14,7 @@
   var nativeRAF = window.requestAnimationFrame.bind(window);
   var nativeCAF = window.cancelAnimationFrame.bind(window);
   var pending = new Map();
+  var flushing = null;   // 正在放行的这一批；放行途中被取消的回调也要能真的取消掉
   var seq = 0x40000000;
   var pumping = false;
   var lastFlush = 0;
@@ -25,7 +27,7 @@
     if (b.classList.contains('dpz-masking') || document.getElementById('dpz-overlay')) return 0;
     if (typeof fx !== 'undefined' && fx && fx.desktopFpsCap === false) return 0;
     if (b.classList.contains('desktop-software-locked')) return 24;
-    if (performance.now() - lastInput < IDLE_MS) return 0;
+    if (performance.now() - lastInput < IDLE_MS) return 60;
     return 30;
   }
 
@@ -38,9 +40,11 @@
       var list = pending;
       pending = new Map();
       pumping = false;
+      flushing = list;
       list.forEach(function (cb) {
         try { cb(t); } catch (e) { setTimeout(function () { throw e; }, 0); }
       });
+      flushing = null;
       if (pending.size && !pumping) { pumping = true; pump(); }
     });
   }
@@ -54,6 +58,7 @@
   };
   window.cancelAnimationFrame = function (id) {
     if (pending.has(id)) { pending.delete(id); return; }
+    if (flushing && flushing.has(id)) { flushing.delete(id); return; }
     nativeCAF(id);
   };
 

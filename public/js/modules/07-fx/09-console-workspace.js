@@ -1,8 +1,10 @@
 'use strict';
 
+// [二改] 「常用」页去掉：视觉预设、用户存档搬到右上角「视觉」面板；这里只剩细节调整（设置）
+// [二改 第二轮] 加回一个「常用」首页：里面是几个最常用设置的快捷副本（08-visual-settings.js 生成），改的仍是原控件
 var FX_CONSOLE_TABS = [
-  { key: 'home', label: '常用' },
-  { key: 'interface', label: '界面' },
+  { key: 'quick', label: '常用' },
+  { key: 'interface', label: '外观' },
   { key: 'lyrics', label: '歌词' },
   { key: 'motion', label: '动效' },
   { key: 'shelf', label: '歌单架' },
@@ -20,46 +22,30 @@ function fxConsoleItem(ref, title, aliases, history) {
 
 var FX_CONSOLE_LAYOUT = [
   {
-    key: 'home',
-    groups: [
-      { key: 'presets', title: '视觉预设', hint: '先选整体风格，再进入细节调整', open: true, items: [
-        fxConsoleItem('preset-grid', '视觉预设', '风格 场景 Emily 安魂 音域 星河 唱片 星球 滚筒 虚空 月蚀圣环 雨幕霓虹 折光蝶群 深海绽放 Eclipse Halo Neon Drizzle Prism Flock Abyssal Bloom')
-      ] },
-      { key: 'archives', title: '用户存档', hint: '保存、应用和分享整套视觉参数', items: [
-        fxConsoleItem('user-archive-grid', '用户存档', '方案 快照 预设码 应用 回退')
-      ] },
-      { key: 'reset', title: '恢复与整理', hint: '恢复全部默认参数', items: [
-        fxConsoleItem({ selector: '.fx-actions' }, '恢复默认', '重置 全部默认')
-      ] }
-    ]
-  },
-  {
     key: 'interface',
+    // [二改 第四轮] 「界面」改叫「外观」：主页换成主题后，这一页管的其实是播放页的背景和颜色。
+    // 常用的排前面；只给旧版主页 / 旧按钮用的几项（Home 填充、主页图标、视觉图标）和被歌单栏主题皮肤
+    // 盖掉的两项（左栏雾面、左栏遮挡）收进 FX_CONSOLE_RETIRED，不再显示、也搜不到。
     groups: [
-      { key: 'background', title: '背景媒体', hint: '颜色、封面、图片、视频与 Wallpaper Engine', open: true, items: [
-        fxConsoleItem('bg-color-picker', '背景颜色', '纯色 封面取色'),
+      { key: 'background', title: '播放页背景', hint: '播放页画面后面垫什么：封面、图片、视频或 WE 壁纸', open: true, items: [
         fxConsoleItem('bg-media-preview', '背景媒体', '封面 图片 视频 上传 裁切 清除', false),
-        fxConsoleItem('wallpaper-engine-value', 'Wallpaper Engine', '壁纸库 识别 导入 恢复原背景', false),
+        fxConsoleItem('bg-color-picker', '背景颜色', '纯色 封面取色'),
         fxConsoleItem('fx-bgopacity', '背景透明度', '背景强度'),
+        fxConsoleItem('fx-bgzoom', '裁切缩放', '背景放大 缩小'),
         fxConsoleItem('fx-bgcropx', '裁切左右', '背景水平 位置'),
         fxConsoleItem('fx-bgcropy', '裁切上下', '背景垂直 位置'),
-        fxConsoleItem('fx-bgzoom', '裁切缩放', '背景放大 缩小')
+        fxConsoleItem('wallpaper-engine-value', 'Wallpaper Engine', '壁纸库 识别 导入 恢复原背景', false)
       ] },
-      { key: 'colors', title: '界面配色', hint: '界面高亮、视觉主色与图标颜色', items: [
-        fxConsoleItem('ui-accent-picker', '界面高亮', '主题色 强调色'),
+      { key: 'colors', title: '颜色', hint: '粒子偏什么色、按钮和进度条的点缀色', open: true, items: [
         fxConsoleItem('visual-tint-picker', '视觉主色', '粒子主色 封面取色'),
-        fxConsoleItem('home-accent-picker', 'Home 填充', '主页颜色'),
-        fxConsoleItem('home-icon-picker', '主页图标', 'Home 图标颜色'),
-        fxConsoleItem('visual-icon-picker', '视觉图标', '控制台图标颜色')
+        fxConsoleItem('ui-accent-picker', '界面高亮', '主题色 强调色 进度条 搜索框')
       ] },
-      { key: 'glass', title: '玻璃与左栏', hint: '窗口玻璃质感和歌单栏唤出手感', items: [
-        fxConsoleItem('fx-windowbgopacity', '窗口背景透明', '窗口透明度'),
-        fxConsoleItem('fx-bgglassopacity', '毛玻璃透明', '玻璃 背景模糊'),
-        fxConsoleItem('fx-glassaberration', '控制台玻璃色差', 'RGB 色散 玻璃质感'),
-        fxConsoleItem('fx-playlistblur', '左栏雾面', '歌单栏 模糊'),
-        fxConsoleItem('fx-playlistdensity', '左栏遮挡', '歌单栏 密度 透明'),
+      { key: 'glass', title: '窗口与左栏', hint: '左边歌单栏滑出的快慢、窗口透出桌面多少', items: [
         fxConsoleItem('fx-playlistopen', '左栏唤出', '打开速度 秒数'),
-        fxConsoleItem('fx-playlistclose', '左栏收起', '关闭速度 秒数')
+        fxConsoleItem('fx-playlistclose', '左栏收起', '关闭速度 秒数'),
+        fxConsoleItem('fx-windowbgopacity', '窗口背景透明', '窗口透明度 透出桌面'),
+        fxConsoleItem('fx-bgglassopacity', '毛玻璃透明', '玻璃 背景模糊'),
+        fxConsoleItem('fx-glassaberration', '播放条玻璃色差', 'RGB 色散 玻璃质感 控制台 底部播放条')
       ] }
     ]
   },
@@ -262,6 +248,10 @@ var FX_CONSOLE_LAYOUT = [
         fxConsoleItem('t-startupFastSkip', '秒启动跳过启动页', '快速启动'),
         fxConsoleItem('startup-resume-mode-seg', '恢复播放位置', '按上次进度 重播整首')
       ] },
+      { key: 'help', title: '帮助与恢复', hint: '使用引导、热键和恢复全部默认', items: [
+        fxConsoleItem('nb-help-row', '使用引导', '引导 教程 新手 帮助 热键 快捷键', false),
+        fxConsoleItem({ selector: '.fx-actions' }, '恢复默认', '重置 全部默认')
+      ] },
       { key: 'output', title: '播放输出', hint: '音频输出设备和路由面板', items: [
         fxConsoleItem('audio-output-panel', '播放输出设备', '声卡 耳机 扬声器 路由', false)
       ] },
@@ -291,11 +281,28 @@ var FX_CONSOLE_LAYOUT = [
         fxConsoleItem('cache-storage-panel', '本地缓存', '缓存路径 缓存目录 占用 歌词 封面 音频 更新', false)
       ] },
       { key: 'experimental', title: '实验功能', hint: '尚未开放或需要谨慎使用的能力', items: [
-        fxConsoleItem('t-wallpaperMode', '完整桌面模式', '完整 Mineradio 进入桌面层 Ctrl Shift M 切换操作层 本次启动有效', false)
+        fxConsoleItem('t-wallpaperMode', '完整桌面模式', '完整 Not Blind 进入桌面层 Ctrl Shift M 切换操作层 本次启动有效', false)
       ] }
     ]
   }
 ];
+
+// 不再显示的旧设置（控件留在页面外的隐藏区里，保存 / 读取、引用它们的旧代码都照常，只是看不到、搜不到）
+var FX_CONSOLE_RETIRED = ['home-accent-picker', 'home-icon-picker', 'visual-icon-picker', 'fx-playlistblur', 'fx-playlistdensity'];
+function fxConsoleRetireBlocks(panel) {
+  var box = document.getElementById('fx-console-retired');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'fx-console-retired';
+    box.hidden = true;
+    box.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(box);
+  }
+  FX_CONSOLE_RETIRED.forEach(function (id) {
+    var node = fxConsoleResolveBlock(id);
+    if (node && panel.contains(node)) box.appendChild(node);
+  });
+}
 
 var fxConsoleRegistry = [];
 var fxConsoleGroups = {};
@@ -447,6 +454,23 @@ function fxConsoleFindUnclassifiedControls(roots) {
   return blocks;
 }
 
+function fxConsoleStashVisualBlocks(panel) {
+  var stash = document.getElementById('nb-visual-stash');
+  if (!stash) {
+    stash = document.createElement('div');
+    stash.id = 'nb-visual-stash';
+    stash.hidden = true;
+    document.body.appendChild(stash);
+  }
+  ['preset-grid', 'user-archive-grid'].forEach(function (id) {
+    var node = document.getElementById(id);
+    if (!node || !panel.contains(node)) return;
+    var label = node.previousElementSibling;
+    if (label && label.classList.contains('fx-section-label') && label.parentNode === node.parentNode) label.remove();
+    stash.appendChild(node);
+  });
+}
+
 function organizeFxConsoleWorkspace() {
   var panel = document.getElementById('fx-panel');
   if (!panel) return;
@@ -455,6 +479,9 @@ function organizeFxConsoleWorkspace() {
     return;
   }
   var head = panel.querySelector('.fx-head');
+  // [二改] 视觉预设 / 用户存档不进设置：先挪到一个暂存处，右上角「视觉」面板启动时接走
+  fxConsoleStashVisualBlocks(panel);
+  fxConsoleRetireBlocks(panel);
   var oldRoots = Array.prototype.slice.call(panel.children).filter(function (node) { return node !== head; });
   fxConsoleRegistry = [];
   fxConsoleGroups = {};

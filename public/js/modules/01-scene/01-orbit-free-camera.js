@@ -216,6 +216,10 @@ function defaultOrbitStateForPreset(p) {
   if (p === 10) return { theta: 0.0, phi: 0.02, radius: 7.15 };
   if (p === 11) return { theta: 0.10, phi: 0.11, radius: 7.0 };
   if (p === 12) return { theta: -0.12, phi: 0.18, radius: 7.35 };
+  if (p === 13) return { theta: 0.0, phi: 0.16, radius: 8.4 };
+  if (p === 14) return { theta: 0.0, phi: 0.28, radius: 7.4 };
+  if (p === 15) return { theta: 0.0, phi: 0.0, radius: 7.6 };
+  if (p === 16) return { theta: 0.0, phi: 0.08, radius: 7.2 };
   if (typeof SONIC_PRESET_INDEX !== 'undefined' && p === SONIC_PRESET_INDEX) {
     return {
       theta: SONIC_ORBIT_BASELINE.theta,
@@ -366,7 +370,7 @@ function captureFreeCameraFromCurrent() {
 }
 function applyFreeCameraToCamera() {
   if (!freeCamera || !(freeCamera.active || freeCamera.locked)) return false;
-  var cameraShake = clampRange(Number(fx.cinemaShake) || 0, 0, 1.8);
+  var cameraShake = (window.NotBlindStageFx ? NotBlindStageFx.cameraShake(fx) : clampRange(Number(fx.cinemaShake) || 0, 0, 1.8));
   camera.position.copy(freeCamera.position);
   camera.rotation.order = 'YXZ';
   camera.rotation.set(
@@ -433,7 +437,7 @@ function toggleFreeCamera() {
     releaseFreeCameraPointerLock();
     saveFreeCameraState();
     updateFreeCameraHint();
-    showToast('自由镜头已固定');
+    showToast('自由镜头已固定 · 滚轮推拉远近 · 按 K 回到默认镜头');
     return;
   }
   captureFreeCameraFromCurrent();
@@ -449,7 +453,7 @@ function toggleFreeCamera() {
   saveFreeCameraState();
   updateFreeCameraHint();
   requestFreeCameraPointerLock('toggle');
-  showToast('自由镜头: WASD 移动 · 鼠标转向 · K 回正');
+  showToast('自由镜头：WASD 移动 · 鼠标转向 · Shift+R 固定 · K 回正');
 }
 function updateFreeCamera(dt) {
   if (!freeCamera) return;

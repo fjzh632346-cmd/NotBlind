@@ -13,6 +13,10 @@ var presetMeta = [
   { name: '雨幕霓虹', nameHtml: '雨幕霓虹 <span class="pc-name-en">NEON DRIZZLE</span>', desc: '城市雨丝 · 色谱残光', premiumVisual: true, accent: '#67efff', accent2: '#ff6bb5' },
   { name: '折光蝶群', nameHtml: '折光蝶群 <span class="pc-name-en">PRISM FLOCK</span>', desc: '折纸翼阵 · 光谱迁徙', premiumVisual: true, accent: '#f0d7ff', accent2: '#75e6d1' },
   { name: '深海绽放', nameHtml: '深海绽放 <span class="pc-name-en">ABYSSAL BLOOM</span>', desc: '生物荧光 · 潮汐花冠', premiumVisual: true, accent: '#75f0d0', accent2: '#8178ff' },
+  { name: '镜湖', nameHtml: '镜湖 <span class="pc-name-en">MIRROR LAKE</span>', desc: '地平线 · 落圆倒影', premiumVisual: true, accent: '#e9dcc0', accent2: '#7fa3b8' },
+  { name: '声纹沙', nameHtml: '声纹沙 <span class="pc-name-en">CHLADNI</span>', desc: '振板细沙 · 节线成纹', premiumVisual: true, accent: '#eadcc4', accent2: '#c98a5c' },
+  { name: '铜雨', nameHtml: '铜雨 <span class="pc-name-en">KINETIC RAIN</span>', desc: '悬丝铜滴 · 曲面起伏', premiumVisual: true, accent: '#f0b48e', accent2: '#e9dcc0' },
+  { name: '谐振', nameHtml: '谐振 <span class="pc-name-en">HARMONOGRAPH</span>', desc: '摆锤笔迹 · 音程成画', premiumVisual: true, accent: '#e9dcc0', accent2: '#ff4a1c' },
 ];
 var presetIcons = [
   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 14c3-2 5-2 8 0s5 2 8 0M3 10c3-2 5-2 8 0s5 2 8 0M3 18c3-2 5-2 8 0s5 2 8 0"/></svg>',
@@ -28,8 +32,12 @@ var presetIcons = [
   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"><path d="M5 3v8M9 2v15M13 5v8M17 2v18M21 6v9"/><path d="M4 19c4-3 8 3 16-1" opacity=".7"/></svg>',
   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"><path d="M12 12 3 6l3 9 6-3 6 3 3-9-9 6Z"/><path d="M12 12V4M6 15l3 4 3-7 3 7 3-4"/></svg>',
   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"><path d="M12 20c-1-5-7-5-7-10 4 0 6 2 7 5 1-3 3-5 7-5 0 5-6 5-7 10Z"/><path d="M12 15c-3-3-2-7 0-11 2 4 3 8 0 11Z"/><circle cx="12" cy="15" r="1.2" fill="currentColor" stroke="none"/></svg>',
+  '<svg class="nbfx-ic nbfx-ic-lake" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 13.5h20"/><path d="M7 13.5a5 5 0 0 1 10 0"/><path class="nbfx-e" d="M7 13.5a5 5 0 0 1 10 0"/><path class="nbfx-r1" d="M8.5 16.5h7" opacity=".6"/><path class="nbfx-r2" d="M10.2 19h3.6" opacity=".6"/></svg>',
+  '<svg class="nbfx-ic nbfx-ic-sand" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"><rect class="nbfx-p" x="3.5" y="3.5" width="17" height="17" rx="1.5"/><path class="nbfx-n" pathLength="1" d="M3.5 12c4-3 5 3 8.5 0s4.5 3 8.5 0M12 3.5c-3 4 3 5 0 8.5s3 4.5 0 8.5" opacity=".75"/></svg>',
+  '<svg class="nbfx-ic nbfx-ic-rain" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"><path class="nbfx-s1" d="M6 2v7" opacity=".6"/><path class="nbfx-s2" d="M12 2v11" opacity=".6"/><path class="nbfx-s3" d="M18 2v6" opacity=".6"/><path class="nbfx-d1" d="M6 9.2c-1.3 1.2-1.8 2-1.8 2.8a1.8 1.8 0 0 0 3.6 0c0-.8-.5-1.6-1.8-2.8Z"/><path class="nbfx-d2" d="M12 13.2c-1.3 1.2-1.8 2-1.8 2.8a1.8 1.8 0 0 0 3.6 0c0-.8-.5-1.6-1.8-2.8Z"/><path class="nbfx-d3" d="M18 8.2c-1.3 1.2-1.8 2-1.8 2.8a1.8 1.8 0 0 0 3.6 0c0-.8-.5-1.6-1.8-2.8Z"/></svg>',
+  '<svg class="nbfx-ic nbfx-ic-harmo" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5" opacity=".4"/><path class="nbfx-h" pathLength="1" d="M19.1 13.5 L19.4 13.3 19.5 13.0 19.5 12.7 19.4 12.4 19.2 12.2 18.8 12.0 18.4 11.8 17.8 11.7 17.2 11.8 16.5 11.9 15.8 12.1 15.2 12.5 14.5 12.9 13.9 13.5 13.4 14.1 12.9 14.7 12.6 15.4 12.3 16.1 12.2 16.8 12.2 17.5 12.2 18.0 12.3 18.5 12.6 19.0 12.8 19.2 13.1 19.4 13.4 19.5 13.7 19.4 13.9 19.2 14.1 18.9 14.1 18.5 14.1 18.0 14.0 17.4 13.8 16.9 13.5 16.3 13.1 15.7 12.5 15.2 11.9 14.7 11.2 14.3 10.5 14.0 9.7 13.7 8.9 13.6 8.2 13.6 7.5 13.7 6.9 13.8 6.3 14.1 5.9 14.4 5.6 14.7 5.4 15.0 5.3 15.3 5.3 15.6 5.5 15.9 5.7 16.0 6.1 16.1 6.5 16.0 7.0 15.9 7.5 15.6 7.9 15.2 8.4 14.7 8.8 14.1 9.1 13.5 9.4 12.7 9.6 11.9 9.7 11.1 9.6 10.3 9.5 9.6 9.3 8.9 9.0 8.2 8.7 7.7 8.3 7.2 7.9 6.9 7.5 6.7 7.1 6.6 6.8 6.6 6.5 6.8 6.3 7.0 6.3 7.3 6.3 7.6 6.5 8.0 6.7 8.4 7.2 8.8 7.7 9.1 8.3 9.4 9.0 9.6 9.7 9.7 10.5 9.8 11.3 9.7 12.1 9.5 12.8 9.2 13.5 8.9 14.1 8.5 14.7 8.0 15.1 7.5 15.4 7.0 15.6 6.5 15.6 6.0 15.6 5.7 15.5 5.4 15.3 5.1 15.0 5.1 14.7 5.1 14.4 5.2 14.1 5.5 13.8 5.9 13.6 6.4 13.4 7.0 13.3 7.7 13.3 8.4 13.4 9.1 13.7 9.9 14.0 10.6 14.4 11.3 14.9 11.9 15.4 12.5 16.0 12.9 16.6 13.3 17.2 13.5 17.8 13.7 18.3 13.7 18.8 13.6 19.1 13.5"/></svg>',
 ];
-var presetDisplayOrder = [0, 9, 10, 11, 12, 6, 7, 8, 5, 4, 2, 1, 3];
+var presetDisplayOrder = [0, 13, 14, 15, 16, 9, 10, 11, 12, 6, 7, 8, 5, 4, 2, 1, 3];
 var lyricColorPresets = [
   { name: '雾蓝', color: '#a9b8c8' },
   { name: '银蓝', color: '#9db8cf' },
@@ -1286,7 +1294,7 @@ function userFxArchiveExportPayload(slot) {
   };
 }
 function safeArchiveFileName(name) {
-  return String(name || 'Mineradio 用户存档').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 48) + '.json';
+  return String(name || 'Not Blind 用户存档').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 48) + '.json';
 }
 function exportUserFxArchive(index) {
   var slot = userFxArchiveAt(index);

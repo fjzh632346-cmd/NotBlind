@@ -217,7 +217,7 @@ function homeThemePlaylistItem(pl, tag) {
     count: Number(pl.trackCount) || 0,
     cover: cover,
     provider: provider,
-    providerLabel: HOME_THEME_PROVIDER_LABELS[provider] || (provider === 'mineradio' ? 'Mineradio' : ''),
+    providerLabel: HOME_THEME_PROVIDER_LABELS[provider] || (provider === 'mineradio' ? 'Not Blind' : ''),
     raw: pl,
   };
 }
@@ -507,9 +507,10 @@ var homeThemeActions = {
     }
     return homeThemeActions.openRadio();
   },
-  // 进入全沉浸模式（点正在播放的歌名）
+  // 点正在播放的歌名 = 进入播放页（是否直接沉浸由「视觉」面板里的开关决定）
   openImmersive: function () {
     if (!homeThemeCurrentSong()) return homeThemeActions.resume();
+    if (typeof nbEnterStage === 'function') { nbEnterStage('home-now-playing'); return; }
     try { if (typeof dismissHomePage === 'function') dismissHomePage({ reason: 'home-theme-immersive' }); else homeThemeLeaveHome(); } catch (_e) { homeThemeLeaveHome(); }
     if (typeof forcePlaybackControlsInteractive === 'function') forcePlaybackControlsInteractive();
     setTimeout(function () { if (typeof setImmersiveMode === 'function') setImmersiveMode(true); }, 60);

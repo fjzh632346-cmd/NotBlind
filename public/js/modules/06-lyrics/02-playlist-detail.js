@@ -126,7 +126,7 @@ function playlistProviderLabel(provider) {
 }
 function playlistProviderName(provider) {
   provider = normalizePlaylistProvider(provider);
-  if (provider === 'mineradio') return 'Mineradio 内置歌单';
+  if (provider === 'mineradio') return 'Not Blind 内置歌单';
   if (provider === 'spotify') return 'Spotify';
   return provider === 'qq' ? 'QQ 音乐' : (provider === 'kugou' ? '酷狗音乐' : (provider === 'qishui' ? '汽水音乐' : '网易云音乐'));
 }
@@ -556,7 +556,7 @@ function playlistPanelBuildVirtualEntries() {
   if (playlistPanelVirtualCache.revision === playlistCatalogRevision &&
       playlistPanelVirtualCache.detailKey === playlistPanelDetailState.key &&
       playlistPanelVirtualCache.detailSig === detailSig) return playlistPanelVirtualCache;
-  var labels = { mineradio: 'Mineradio 内置歌单', netease: '网易云歌单', qq: 'QQ 音乐歌单', kugou: '酷狗音乐歌单', qishui: '汽水音乐歌单', spotify: 'Spotify 歌单' };
+  var labels = { mineradio: 'Not Blind 内置歌单', netease: '网易云歌单', qq: 'QQ 音乐歌单', kugou: '酷狗音乐歌单', qishui: '汽水音乐歌单', spotify: 'Spotify 歌单' };
   var order = ['mineradio', 'netease', 'qq', 'kugou', 'qishui', 'spotify'];
   var groups = { mineradio: [], netease: [], qq: [], kugou: [], qishui: [], spotify: [] };
   userPlaylists.forEach(function (pl, sourceIndex) {

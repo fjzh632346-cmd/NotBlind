@@ -17,7 +17,13 @@ async function apiJson(url, opts) {
     if (timer) clearTimeout(timer);
   }
 }
-function escHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+// [二改][安全] 原来借 textContent→innerHTML 转义，只处理 & < >，不处理引号；
+// 拼进 data-xxx="…" / src="…" 这类属性时，歌单名里的一个引号就能闭合属性注入事件。
+var ESC_HTML_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, function (c) { return ESC_HTML_MAP[c]; });
+}
 function normalizePlaybackQuality(value) {
   value = String(value || '').toLowerCase();
   if (value === 'jymaster' || value === 'master' || value === 'svip') return 'jymaster';
@@ -675,7 +681,7 @@ function renderAudioOutputDeviceUi() {
     '<div class="audio-route-graph' + (bridgeEnabled ? ' bridge-on' : '') + '">' +
       '<svg id="audio-route-workflow-svg" class="workflow-link-layer audio-link-layer" aria-hidden="true"></svg>' +
       '<div class="audio-flow-source workflow-node" data-audio-node="player">' +
-        '<span class="route-node-kicker">SOURCE</span><span class="route-node-icon">MR</span><span class="route-node-text"><b>Mineradio Player</b><small>' + escHtml(summaryText) + '</small></span><span class="audio-source-meter" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span class="flow-port out" data-audio-route-source="player" title="Mineradio 输出"></span>' +
+        '<span class="route-node-kicker">SOURCE</span><span class="route-node-icon">NB</span><span class="route-node-text"><b>Not Blind Player</b><small>' + escHtml(summaryText) + '</small></span><span class="audio-source-meter" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span class="flow-port out" data-audio-route-source="player" title="Not Blind 输出"></span>' +
       '</div>' +
       '<div class="audio-route-status"><span class="route-energy-dot"></span><b>Patch Bay</b><small>' + escHtml(audioOutputDeviceId ? '主监听已指定' : '主监听跟随系统默认') + '</small></div>' +
       '<div class="audio-route-board">' +
@@ -701,7 +707,7 @@ function renderAudioOutputDeviceUi() {
   if (workflowSubtitle) workflowSubtitle.textContent = summaryText;
   list.innerHTML =
     '<button class="audio-output-summary-card" type="button" onclick="openAudioOutputWorkflowPanel()">' +
-      '<span class="route-node-icon">MR</span>' +
+      '<span class="route-node-icon">NB</span>' +
       '<span class="audio-output-summary-copy"><b>' + escHtml(summaryText) + '</b><small>' +
         escHtml((activePrimary ? '主输出已指定' : '主输出使用系统默认') + ' / 镜像监听 ' + mirrorStateLabel + ' / 桥接 ' + (bridgeEnabled ? '开启' : '关闭')) +
       '</small></span>' +

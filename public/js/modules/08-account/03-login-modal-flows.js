@@ -709,7 +709,7 @@ function spotifySetupCurrentStep() {
 function setSpotifySetupOverall(message, kind) {
   var node = document.getElementById('spotify-setup-overall');
   if (!node) return;
-  node.textContent = message || '按当前步骤继续，Mineradio 会自动检测。';
+  node.textContent = message || '按当前步骤继续，Not Blind 会自动检测。';
   node.className = 'spotify-setup-overall' + (kind ? (' ' + kind) : '');
 }
 
@@ -823,7 +823,7 @@ async function verifySpotifySetupCallback(silent) {
   var api = window.desktopWindow;
   if (!api || typeof api.verifySpotifyMusicSetup !== 'function') {
     spotifySetupCallbackReady = false;
-    setSpotifySetupOverall('当前不是可执行本机回调检测的 Mineradio 桌面环境。', 'fail');
+    setSpotifySetupOverall('当前不是可执行本机回调检测的 Not Blind 桌面环境。', 'fail');
     renderSpotifySetupWizard();
     return false;
   }
@@ -932,7 +932,7 @@ function updateLoginProviderUi() {
     if (title) title.textContent = '连接 Spotify';
     if (desc) desc.innerHTML = canOpenSpotifyOAuth
       ? '粘贴 <b>Spotify Client ID</b> 后保存并授权，用于同步 Premium/Free 状态、歌单和 Liked Songs；播放仍按匹配源自动换源。'
-      : '当前环境不支持桌面授权桥；请在 Mineradio 桌面版中连接 Spotify。';
+      : '当前环境不支持桌面授权桥；请在 Not Blind 桌面版中连接 Spotify。';
     if (shell) {
       shell.classList.add('web-login-preview');
       shell.classList.remove('qq-preview', 'netease-preview');
@@ -1272,7 +1272,7 @@ async function openSpotifyWebLogin() {
   if (spotifyOAuthBusy) return;
   var api = window.desktopWindow;
   if (!api || !api.isDesktop || typeof api.openSpotifyMusicLogin !== 'function') {
-    setSpotifySetupOverall('当前环境不支持 Spotify 本地授权桥，请使用 Mineradio 桌面版。', 'fail');
+    setSpotifySetupOverall('当前环境不支持 Spotify 本地授权桥，请使用 Not Blind 桌面版。', 'fail');
     return;
   }
   if (!spotifyLoginStatus.oauthConfigured && !spotifyLoginStatus.tokenConfigured) {
@@ -1289,7 +1289,7 @@ async function openSpotifyWebLogin() {
   }
   spotifyOAuthBusy = true;
   updateLoginProviderUi();
-  setSpotifySetupOverall('已打开系统浏览器，请在 Spotify 官方页面完成授权；Mineradio 正在等待回调。');
+  setSpotifySetupOverall('已打开系统浏览器，请在 Spotify 官方页面完成授权；Not Blind 正在等待回调。');
   var failText = '';
   try {
     var result = await api.openSpotifyMusicLogin();

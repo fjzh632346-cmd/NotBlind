@@ -1,9 +1,14 @@
 function isFreeCameraControlCode(code) {
   return /^(KeyW|KeyA|KeyS|KeyD|KeyQ|KeyE|Space|ShiftLeft|ShiftRight|ControlLeft|ControlRight)$/.test(code);
 }
+// [二改] 自由镜头开关从单键 R 改成 Shift+R：单字母太容易误触，而且"固定"状态会被记住，
+// 之前就因为误按了 R，播放页滚轮看起来像失灵了
+function isFreeCameraToggleKey(e) {
+  return !!(e && e.code === 'KeyR' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey);
+}
 function consumeFreeCameraKeyEvent(e, isDown) {
   if (isTypingTarget(e.target)) return false;
-  if (isDown && e.code === 'KeyR') {
+  if (isDown && isFreeCameraToggleKey(e)) {
     e.preventDefault();
     e.stopImmediatePropagation();
     if (e.repeat) return true;
@@ -11,7 +16,7 @@ function consumeFreeCameraKeyEvent(e, isDown) {
     return true;
   }
   if (!freeCamera || !freeCamera.active) return false;
-  if (isDown && e.code === 'KeyK') {
+  if (isDown && e.code === 'KeyK' && !e.ctrlKey && !e.metaKey && !e.altKey) {
     e.preventDefault();
     e.stopImmediatePropagation();
     resetFreeCameraToDefault();
@@ -47,7 +52,7 @@ document.addEventListener('keydown', function (e) {
   if (isTypingTarget(e.target)) return;
   if (isPlaybackSpaceKey(e)) return;
   markRenderInteraction('keyboard', 700);
-  if (e.code === 'KeyK') {
+  if (e.code === 'KeyK' && !e.ctrlKey && !e.metaKey && !e.altKey) {
     e.preventDefault();
     if (freeCamera && (freeCamera.active || freeCamera.locked)) resetFreeCameraToDefault();
     else {
@@ -56,7 +61,7 @@ document.addEventListener('keydown', function (e) {
     }
     return;
   }
-  if (e.code === 'KeyR') {
+  if (isFreeCameraToggleKey(e)) {
     if (e.repeat) return;
     e.preventDefault();
     toggleFreeCamera();
