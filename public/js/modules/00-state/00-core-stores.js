@@ -156,16 +156,31 @@ var STARTUP_RESUME_MODE_STORE_KEY = 'mineradio-startup-resume-mode-v1';
 var LOCAL_BEATMAP_STORE_KEY = 'mineradio-local-beatmaps-v1';
 var LOCAL_BEAT_PREF_STORE_KEY = 'mineradio-local-beatmap-prefs-v1';
 var LOCAL_BEAT_COMBOS = ['', 'downbeat', 'push', 'drop', 'rebound', 'accent'];
+// [二改][全局快捷键] 全局快捷键会向系统"抢键"：不管在哪个软件里按，都会被 Not Blind 拿走。
+// 原来默认开了一整套（Ctrl+Shift+M 切桌面模式、Ctrl+Alt+方向键……），和 VS Code / IDE / 会议软件的常用键撞车，
+// 在别的软件里一按，窗口就被切成桌面背景 = "突然消失"。现在全局默认只留键盘上的媒体键，其余默认不设，想要的在 设置 › 快捷键 里自己录。
 var HOTKEY_ACTIONS = [
-  { key: 'togglePlay', label: '播放 / 暂停', category: '播放', local: 'Space', global: 'Ctrl+Alt+Space' },
-  { key: 'prevTrack', label: '上一首', category: '播放', local: 'ArrowLeft', global: 'Ctrl+Alt+ArrowLeft' },
-  { key: 'nextTrack', label: '下一首', category: '播放', local: 'ArrowRight', global: 'Ctrl+Alt+ArrowRight' },
-  { key: 'volumeUp', label: '音量增加', category: '音量', local: 'ArrowUp', global: 'Ctrl+Alt+ArrowUp' },
-  { key: 'volumeDown', label: '音量降低', category: '音量', local: 'ArrowDown', global: 'Ctrl+Alt+ArrowDown' },
-  { key: 'toggleFullscreen', label: '全屏', category: '窗口', local: 'KeyF', global: 'Ctrl+Alt+KeyF' },
-  { key: 'toggleDesktopInteraction', label: '切换完整桌面模式', category: '窗口', local: '', global: 'Ctrl+Shift+KeyM' },
-  { key: 'toggleDesktopLyrics', label: '桌面歌词', category: '歌词', local: 'Alt+KeyL', global: 'Ctrl+Alt+KeyL' }
+  { key: 'togglePlay', label: '播放 / 暂停', category: '播放', local: 'Space', global: 'MediaPlayPause' },
+  { key: 'prevTrack', label: '上一首', category: '播放', local: 'ArrowLeft', global: 'MediaTrackPrevious' },
+  { key: 'nextTrack', label: '下一首', category: '播放', local: 'ArrowRight', global: 'MediaTrackNext' },
+  { key: 'volumeUp', label: '音量增加', category: '音量', local: 'ArrowUp', global: '' },
+  { key: 'volumeDown', label: '音量降低', category: '音量', local: 'ArrowDown', global: '' },
+  { key: 'toggleFullscreen', label: '全屏', category: '窗口', local: 'KeyF', global: '' },
+  { key: 'toggleDesktopInteraction', label: '切换完整桌面模式', category: '窗口', local: '', global: '' },
+  { key: 'toggleDesktopLyrics', label: '桌面歌词', category: '歌词', local: 'Alt+KeyL', global: '' }
 ];
+// 3.0.0 及以前的全局默认值：老用户存下来的设置里如果还是这些，就换成新的默认（只迁移一次，见 readHotkeySettings）
+var HOTKEY_GLOBAL_LEGACY_DEFAULTS = {
+  togglePlay: 'Ctrl+Alt+Space',
+  prevTrack: 'Ctrl+Alt+ArrowLeft',
+  nextTrack: 'Ctrl+Alt+ArrowRight',
+  volumeUp: 'Ctrl+Alt+ArrowUp',
+  volumeDown: 'Ctrl+Alt+ArrowDown',
+  toggleFullscreen: 'Ctrl+Alt+KeyF',
+  toggleDesktopInteraction: 'Ctrl+Shift+KeyM',
+  toggleDesktopLyrics: 'Ctrl+Alt+KeyL'
+};
+var HOTKEY_GLOBAL_DEFAULTS_REV = 2;
 var hotkeyCaptureState = null;
 var hotkeyGlobalStatus = {};
 var diyPlayerMode = readDiyModePreference();

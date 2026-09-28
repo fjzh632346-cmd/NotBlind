@@ -29,6 +29,7 @@ var homePlatformRecommendationState = {
   feeds: {
     qishui: { loading: false, loaded: false, songs: [], error: '', message: '', mode: '', source: '', fallback: false, provenance: '' },
     kugou: { loading: false, loaded: false, songs: [], error: '', message: '', mode: '', source: '', fallback: false, provenance: '' },
+    qq: { loading: false, loaded: false, songs: [], error: '', message: '', mode: '', source: '', fallback: false, provenance: '' },
   },
 };
 
@@ -875,6 +876,13 @@ function homePlatformRecommendationFeedConfig(source) {
       readyText: '来自汽水推荐 Feed',
       playlistName: '汽水推荐 Feed',
     },
+    qq: {
+      endpoint: '/api/qq/recommendations?limit=30',
+      sectionTitle: '猜你喜欢 · 雷达推荐',
+      cardLabel: 'QQ 音乐推荐',
+      readyText: '来自 QQ 音乐猜你喜欢 / 雷达推荐（已登录账号的个性化推荐）',
+      playlistName: 'QQ 音乐推荐',
+    },
     kugou: {
       endpoint: '/api/kugou/recommendations?limit=12',
       sectionTitle: '推荐 FM',
@@ -1053,6 +1061,10 @@ function renderHomePlatformRecommendations() {
         sectionTitle = '你的音乐';
         cardLabel = '汽水喜欢 / 最近播放';
         readyText = '汽水推荐 Feed 暂不可用，当前显示你的喜欢与最近播放';
+      } else if (source === 'qq' && feedState.mode === 'newsong') {
+        sectionTitle = '新歌首发';
+        cardLabel = 'QQ 音乐新歌';
+        readyText = 'QQ 音乐猜你喜欢暂时没返回，当前显示平台新歌首发';
       } else if (source === 'spotify' && feedState.mode === 'liked-affinity') {
         sectionTitle = '你的喜欢';
         cardLabel = 'Spotify 喜欢的歌曲';
@@ -1209,7 +1221,7 @@ function bindHomePlatformRecommendationControls() {
     closeHomePlatformRecommendations();
     if (kind === 'netease-playlist' && typeof openHomePlaylist === 'function') openHomePlaylist(index);
     else if (kind === 'netease-song' && typeof playHomeSong === 'function') playHomeSong(index);
-    else if (/^(qishui|kugou|spotify)-song$/.test(kind)) playHomePlatformFeedSong(kind.replace(/-song$/, ''), index);
+    else if (/^(qishui|kugou|spotify|qq)-song$/.test(kind)) playHomePlatformFeedSong(kind.replace(/-song$/, ''), index);
   });
   if (list) list.addEventListener('scroll', scheduleHomePlatformDailyWindowRender, { passive: true });
   window.addEventListener('resize', scheduleHomePlatformDailyWindowRender, { passive: true });
@@ -1238,7 +1250,8 @@ function openHomePlatformRecommendations(preferredSource) {
     ? 'netease'
     : (qishuiLoginStatus && (qishuiLoginStatus.loggedIn || qishuiLoginStatus.configured)
       ? 'qishui'
-      : (kugouLoginStatus && kugouLoginStatus.loggedIn ? 'kugou' : 'netease'));
+      : (kugouLoginStatus && kugouLoginStatus.loggedIn ? 'kugou'
+        : (typeof qqLoginStatus !== 'undefined' && qqLoginStatus && qqLoginStatus.loggedIn ? 'qq' : 'netease')));
   var source = /^(netease|qishui|qq|kugou)$/.test(String(preferredSource || '')) ? preferredSource : defaultSource;
   loadHomePlatformRecommendations(source, false);
   setTimeout(function () {

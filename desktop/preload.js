@@ -146,6 +146,13 @@ contextBridge.exposeInMainWorld('desktopWindow', {
     overSoftwareUi: payload && payload.overSoftwareUi === true,
     overDesktopControls: payload && payload.overDesktopControls === true,
   }),
+  // [二改][修黑屏 2] 主进程处理桌面背景黑屏时给用户的提示
+  onDesktopBlackNotice: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('notblind-desktop-black-notice', listener);
+    return () => ipcRenderer.removeListener('notblind-desktop-black-notice', listener);
+  },
   onWallpaperModeState: (callback) => {
     if (typeof callback !== 'function') return () => {};
     const listener = (_event, payload) => callback(payload || {});

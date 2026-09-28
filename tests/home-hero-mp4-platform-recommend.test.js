@@ -111,7 +111,9 @@ test('platform recommendation entry uses real feeds and does not synthesize radi
   assert.match(feedConfig, /\/api\/qishui\/feed/);
   assert.match(feedConfig, /\/api\/kugou\/recommendations/);
   assert.match(feedConfig, /\/api\/spotify\/recommendations/);
-  assert.doesNotMatch(feedConfig, /\/api\/qq\/|search/);
+  // QQ 现在有经过验证的平台推荐接口（猜你喜欢 / 雷达），仍然不允许用搜索结果冒充推荐
+  assert.match(feedConfig, /\/api\/qq\/recommendations/);
+  assert.doesNotMatch(feedConfig, /search/);
   assert.match(namedFunctionSource(dashboardScript, 'loadHomePlatformFeedRecommendations'), /apiJson\s*\(\s*config\.endpoint/);
   assert.match(namedFunctionSource(dashboardScript, 'loadHomePlatformFeedRecommendations'), /feedState\.fallback/);
   assert.match(namedFunctionSource(dashboardScript, 'loadHomePlatformFeedRecommendations'), /feedState\.mode/);

@@ -17,6 +17,7 @@ const {
 const { BuiltInPlaylistLibrary } = require('./built-in-playlist-library');
 const { WallpaperEngineRuntime } = require('./wallpaper-engine-runtime');
 const { FullDesktopModeRuntime } = require('./full-desktop-mode-runtime');
+const { ForegroundWatch } = require('./foreground-watch');
 const {
   LoginEasterEggGate,
   LOGIN_EASTER_EGG_GATE_VERSION,
@@ -187,7 +188,9 @@ try {
   console.warn('[Feedback] init failed:', error && error.message || error);
 }
 const INITIAL_CACHE_SETTINGS = ensureCacheDirectories(readCacheSettings());
+// [二改][登录彩蛋] gated:false —— 不再在登录前设「世界和平」口令门；动画改成第一次登录成功后播放（见 login-easter-egg-gate.js）
 const loginEasterEggGate = new LoginEasterEggGate({
+  gated: false,
   userDataPath: STABLE_USER_DATA_PATH,
   credentialRoots: () => [
     chromiumSessionDataPath(cacheSettings || INITIAL_CACHE_SETTINGS),
@@ -223,6 +226,28 @@ const fullDesktopModeRuntime = new FullDesktopModeRuntime({
   beforePassive: ({ win, reason }) => prepareWallpaperEngineProjectPreviewBeforeDesktopEmbedding(win, reason),
   requestReconcile: (reason) => reconcileFullDesktopMode(reason),
   onStatus: (status) => broadcastDesktopWallpaperStatus(status),
+});
+// [二改][桌面模式 Esc] 桌面模式期间看"最前面是哪个窗口"：只有桌面或 Not Blind 自己在最前面时才接管 Esc
+let desktopForegroundWatchLastDesktop = false;
+const desktopForegroundWatch = new ForegroundWatch({
+  nativeTempPath: NATIVE_SCRIPT_TEMP_PATH,
+  ownerProcessId: process.pid,
+  intervalMs: 120,
+  onChange: (next) => {
+    syncFullDesktopEscapeShortcut('foreground-change');
+    const onDesktop = !!(next && (next.empty || next.className === 'Progman' || next.className === 'WorkerW' || next.pid === process.pid));
+    if (onDesktop && !desktopForegroundWatchLastDesktop) {
+      try { scheduleDesktopBlackCheckOnDesktopForeground(); } catch (_) { }
+    }
+    desktopForegroundWatchLastDesktop = onDesktop;
+  },
+  onExit: (info) => {
+    if (info && info.code) {
+      try { stabilityLog('foreground-watch-exit', { code: info.code, error: String(info.error || '').slice(0, 200) }); } catch (_) { }
+    }
+    // 观察器意外退出时按原来的方式（始终接管 Esc）兜底，保证总能退出桌面模式
+    try { syncFullDesktopEscapeShortcut('foreground-watch-exit'); } catch (_) { }
+  },
 });
 let wallpaperEngineCaptureSourceId = '';
 let wallpaperEngineCaptureGrant = null;
@@ -1602,11 +1627,35 @@ function unregisterFullDesktopEscapeShortcut() {
 // [二改] 渲染端在输入框里打字 / 顶部搜索打开时，请主进程暂时让出 Esc，
 // 免得取消拼音候选、收起搜索时直接退出桌面模式（见 13-desktop-extras/06-desktop-esc-guard.js）
 let fullDesktopEscapeSuspendedByRenderer = false;
+// [二改][桌面模式 Esc] 全局 Esc 会把按键从所有软件那里抢走：在别的软件里按 Esc 也会退出桌面模式，
+// 那个软件自己还收不到 Esc。现在只有"桌面（Progman / WorkerW）或 Not Blind 自己在最前面"时才注册；
+// 前台观察器没起来 / 还没回报时，按原来的方式始终注册（保证总能退出）。
+function fullDesktopForegroundAllowsEscape() {
+  if (fullDesktopEnablePending === true) return true;
+  try {
+    if (!desktopForegroundWatch || !desktopForegroundWatch.hasState()) return true;
+    return desktopForegroundWatch.foregroundIsDesktopOrSelf([process.pid]);
+  } catch (_) {
+    return true;
+  }
+}
+function syncDesktopForegroundWatch(active) {
+  if (process.platform !== 'win32') return;
+  try {
+    if (active) {
+      if (!desktopForegroundWatch.isRunning() && desktopForegroundWatch.failures < 3) desktopForegroundWatch.start();
+    } else if (desktopForegroundWatch.isRunning()) {
+      desktopForegroundWatch.stop();
+      desktopForegroundWatchLastDesktop = false;
+    }
+  } catch (_) { }
+}
 function syncFullDesktopEscapeShortcut(reason = 'desktop-state') {
   const status = fullDesktopModeRuntime.getStatus(reason);
   const active = status.enabled === true || fullDesktopEnablePending === true;
   if (!active) fullDesktopEscapeSuspendedByRenderer = false;
-  if (active && !fullDesktopEscapeSuspendedByRenderer) registerFullDesktopEscapeShortcut();
+  syncDesktopForegroundWatch(status.enabled === true);
+  if (active && !fullDesktopEscapeSuspendedByRenderer && fullDesktopForegroundAllowsEscape()) registerFullDesktopEscapeShortcut();
   else unregisterFullDesktopEscapeShortcut();
 }
 
@@ -1771,18 +1820,27 @@ function scheduleDesktopDebug(label, delays = [300], extra = {}) {
 // 原来 12 秒一次，在核显 / 4K 屏上会让画面每 12 秒顿一下。遮挡判定开关已经生效时（第二次启动起）
 // 黑屏的根源已经去掉，看门狗只是保险，90 秒查一次；开关还没生效的第一次启动 30 秒一次。
 // 唤醒、解锁、显卡进程重启这些最容易黑屏的时刻另外会立刻查。
-const DESKTOP_BLACK_WATCHDOG_INTERVAL_MS = DESKTOP_COMPOSITOR_KEEP_ALIVE ? 90000 : 30000;
-const DESKTOP_BLACK_WATCHDOG_SAMPLE = { width: 96, height: 54 };
+// [二改][修黑屏 2] 检查变便宜了（小缩略图 + 逐格对比），而且用户回到桌面 / 点任务栏图标时也会立刻查，定时查放到 60 秒
+const DESKTOP_BLACK_WATCHDOG_INTERVAL_MS = DESKTOP_COMPOSITOR_KEEP_ALIVE ? 60000 : 30000;
+const DESKTOP_BLACK_WATCHDOG_SAMPLE = { width: 160, height: 90 };
 const DESKTOP_BLACK_WATCHDOG_SCREEN_DARK = 0.97;
 const DESKTOP_BLACK_WATCHDOG_PAGE_DARK = 0.6;
 const DESKTOP_BLACK_WATCHDOG_PIXEL_DARK = 10;
 const DESKTOP_BLACK_WATCHDOG_RECONCILE_GAP_MS = 60000;
+// [二改][修黑屏 2] "退出再贴回"最多 5 分钟一次；再黑就直接退回窗口（和用户按 Esc 的效果一样，至少有画面）
+const DESKTOP_BLACK_WATCHDOG_CYCLE_GAP_MS = 5 * 60 * 1000;
+const DESKTOP_BLACK_GRID = { width: 64, height: 36 };
 let desktopBlackWatchdogTimer = null;
 let desktopBlackWatchdogBusy = false;
 let desktopBlackWatchdogStrikes = 0;
 let desktopBlackWatchdogLastReconcileAt = 0;
+let desktopBlackWatchdogLastCycleAt = 0;
 let desktopBlackWatchdogLastLogAt = 0;
-let desktopBlackWatchdogStats = { checks: 0, detections: 0, kicks: 0, reconciles: 0, lastDetectionAt: '' };
+let desktopBlackRecoveryBusy = false;
+let desktopBlackLastStage = 0;
+let desktopBlackRecheckTimer = null;
+let desktopBlackLastForegroundCheckAt = 0;
+let desktopBlackWatchdogStats = { checks: 0, detections: 0, kicks: 0, reconciles: 0, cycles: 0, exits: 0, lastDetectionAt: '' };
 
 function nativeImageDarkFraction(image, rect) {
   if (!image || image.isEmpty()) return null;
@@ -1810,6 +1868,92 @@ function nativeImageDarkFraction(image, rect) {
   return total > 0 ? dark / total : null;
 }
 
+// 把图的一块区域缩成 gw×gh 的亮度网格（0–255），用来对比"屏幕上看到的"和"Not Blind 自己画的"
+function nativeImageLumaGrid(image, rect, gw = DESKTOP_BLACK_GRID.width, gh = DESKTOP_BLACK_GRID.height) {
+  if (!image || image.isEmpty()) return null;
+  const size = image.getSize();
+  let bitmap;
+  try { bitmap = image.toBitmap(); } catch (_) { return null; }
+  if (!bitmap || bitmap.length < size.width * size.height * 4) return null;
+  const x0 = Math.max(0, Math.floor(rect ? rect.x : 0));
+  const y0 = Math.max(0, Math.floor(rect ? rect.y : 0));
+  const x1 = Math.min(size.width, Math.ceil(rect ? rect.x + rect.width : size.width));
+  const y1 = Math.min(size.height, Math.ceil(rect ? rect.y + rect.height : size.height));
+  if (x1 - x0 < 4 || y1 - y0 < 4) return null;
+  const sums = new Float64Array(gw * gh);
+  const counts = new Uint32Array(gw * gh);
+  for (let y = y0; y < y1; y += 1) {
+    const gy = Math.min(gh - 1, Math.floor(((y - y0) / (y1 - y0)) * gh));
+    let offset = (y * size.width + x0) * 4;
+    for (let x = x0; x < x1; x += 1, offset += 4) {
+      const gx = Math.min(gw - 1, Math.floor(((x - x0) / (x1 - x0)) * gw));
+      const b = bitmap[offset];
+      const g = bitmap[offset + 1];
+      const r = bitmap[offset + 2];
+      const cell = gy * gw + gx;
+      sums[cell] += 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      counts[cell] += 1;
+    }
+  }
+  const grid = new Float32Array(gw * gh);
+  let total = 0;
+  for (let i = 0; i < grid.length; i += 1) {
+    grid[i] = counts[i] ? sums[i] / counts[i] : 0;
+    total += grid[i];
+  }
+  return { grid, mean: total / grid.length, width: gw, height: gh };
+}
+
+// 屏幕上这块区域"丢了多少 Not Blind 画出来的亮处"。只看页面上亮（≥18）的格子，屏幕上对应的格子分三种：
+//   lost    = 几乎全黑（< 8）：本该有画面、却是黑的
+//   shown   = 和页面差不多：画面正常
+//   covered = 都不像：多半是别的软件窗口挡在上面，这些格子不参与判断
+// 2026-09-28 实测：用户开着别的软件窗口时桌面背景黑了，原来"整个屏幕 97% 以上是黑的"才算黑屏，被挡住的部分让它永远判不出来。
+function compareScreenToPageLuma(screenGrid, pageGrid) {
+  if (!screenGrid || !pageGrid || screenGrid.grid.length !== pageGrid.grid.length) return null;
+  let pageBright = 0;
+  let lost = 0;
+  let shown = 0;
+  let covered = 0;
+  for (let i = 0; i < pageGrid.grid.length; i += 1) {
+    const p = pageGrid.grid[i];
+    if (p < 18) continue;
+    pageBright += 1;
+    const s = screenGrid.grid[i];
+    if (s < 8) lost += 1;
+    else if (Math.abs(s - p) <= Math.max(12, p * 0.35)) shown += 1;
+    else covered += 1;
+  }
+  const visible = lost + shown;
+  return {
+    pageBright,
+    lost,
+    shown,
+    covered,
+    lostFraction: visible ? lost / visible : 0,
+    screenMean: Number(screenGrid.mean.toFixed(2)),
+    pageMean: Number(pageGrid.mean.toFixed(2)),
+  };
+}
+
+// 桌面模式下让窗口"藏一下再露出来"：Chromium 会按"刚显示出来"重新把画面交给系统合成。
+// 不改尺寸——挂在图标层下面时改尺寸可能让 Electron 重新建顶层窗口（见 full-desktop-mode-runtime 的注释），
+// 进出桌面模式本身就在用 hide / showInactive，所以这一步是安全的；只在已经判定黑屏时才做，闪一下也看不出来。
+function pulseDesktopWindowVisibility(win, reason = 'black-screen') {
+  if (!win || win.isDestroyed()) return;
+  try {
+    win.hide();
+    setTimeout(() => {
+      if (win.isDestroyed()) return;
+      try { win.showInactive(); } catch (_) { }
+      try { win.webContents.invalidate(); } catch (_) { }
+      try { sendWindowState(win); } catch (_) { }
+    }, 140);
+  } catch (error) {
+    desktopBlackWatchdogLog({ action: 'visibility-pulse-failed', reason, error: String(error && error.message || error).slice(0, 160) });
+  }
+}
+
 async function sampleDesktopScreenDarkness(win) {
   const display = screen.getDisplayMatching(win.getBounds());
   const sources = await desktopCapturer.getSources({
@@ -1831,17 +1975,33 @@ async function sampleDesktopScreenDarkness(win) {
     width: (wa.width / Math.max(1, db.width)) * size.width - 2,
     height: (wa.height / Math.max(1, db.height)) * size.height - 2,
   };
-  return { dark: nativeImageDarkFraction(image, rect), image, displayId: display.id };
+  // 窗口在这块屏幕上的位置（桌面模式里通常就是整块屏幕），用来和页面截图逐格对比
+  let windowRect = null;
+  try {
+    const wb = win.getContentBounds();
+    windowRect = {
+      x: ((wb.x - db.x) / Math.max(1, db.width)) * size.width,
+      y: ((wb.y - db.y) / Math.max(1, db.height)) * size.height,
+      width: (wb.width / Math.max(1, db.width)) * size.width,
+      height: (wb.height / Math.max(1, db.height)) * size.height,
+    };
+  } catch (_) { windowRect = null; }
+  return {
+    dark: nativeImageDarkFraction(image, rect),
+    grid: windowRect ? nativeImageLumaGrid(image, windowRect) : null,
+    image,
+    displayId: display.id,
+  };
 }
 
 async function sampleMainWindowPageDarkness(win) {
   const image = await win.webContents.capturePage();
   if (!image || image.isEmpty()) return null;
   const size = image.getSize();
-  const small = size.width > DESKTOP_BLACK_WATCHDOG_SAMPLE.width
-    ? image.resize({ width: DESKTOP_BLACK_WATCHDOG_SAMPLE.width, quality: 'good' })
+  const small = size.width > 256
+    ? image.resize({ width: 256, quality: 'good' })
     : image;
-  return { dark: nativeImageDarkFraction(small, null), image: small };
+  return { dark: nativeImageDarkFraction(small, null), grid: nativeImageLumaGrid(small, null), image: small };
 }
 
 function kickMainWindowCompositor(win, reason = 'black-screen') {
@@ -1859,6 +2019,8 @@ function kickMainWindowCompositor(win, reason = 'black-screen') {
 }
 
 function desktopBlackWatchdogLog(entry) {
+  // [二改][修黑屏 2] 安装版也要留证据：黑屏检测和每一步处理都写进稳定性日志（很小，常开）
+  try { stabilityLog('desktop-black', entry); } catch (_) { }
   if (!DESKTOP_DEBUG_ENABLED) return;
   try {
     fs.mkdirSync(DESKTOP_DEBUG_DIR, { recursive: true });
@@ -1868,27 +2030,169 @@ function desktopBlackWatchdogLog(entry) {
   } catch (_) { }
 }
 
+// [二改][修黑屏 2] 黑屏那一刻的"现场"：只读地问一下 Windows，Not Blind 的窗口还挂在哪、看不看得见、
+// 被没被系统隐藏（cloaked），图标层是不是还透明、背景色对不对、现在最前面是谁。写进稳定性日志，方便下次对症。
+const DESKTOP_BLACK_PROBE_SCRIPT = `
+$ErrorActionPreference = "Stop"
+Add-Type -TypeDefinition @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class NotBlindBlackProbe {
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr h);
+  [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint f);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll", EntryPoint="GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr(IntPtr h, int i);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
+  [DllImport("user32.dll")] public static extern bool GetLayeredWindowAttributes(IntPtr h, out uint key, out byte alpha, out uint flags);
+  [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW")] public static extern IntPtr SendMessageTimeout(IntPtr h, uint m, IntPtr w, IntPtr l, uint f, uint t, out IntPtr r);
+  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);
+  [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr h, int attr, out int value, int size);
+  static string Cls(IntPtr h) { if (h == IntPtr.Zero) return ""; StringBuilder s = new StringBuilder(128); GetClassName(h, s, 128); return s.ToString(); }
+  static string Win(IntPtr h) {
+    if (h == IntPtr.Zero || !IsWindow(h)) return "none";
+    RECT r; GetWindowRect(h, out r);
+    int cloaked = 0; try { DwmGetWindowAttribute(h, 14, out cloaked, 4); } catch { }
+    long ex = GetWindowLongPtr(h, -20).ToInt64();
+    return Cls(h) + ",vis=" + (IsWindowVisible(h) ? 1 : 0) + ",cloak=" + cloaked + ",ex=" + ex.ToString("X") + ",rect=" + r.L + "/" + r.T + "/" + (r.R - r.L) + "x" + (r.B - r.T);
+  }
+  public static string Run(long mainHandle) {
+    StringBuilder o = new StringBuilder();
+    IntPtr main = new IntPtr(mainHandle);
+    IntPtr parent = GetParent(main);
+    o.Append("main=" + Win(main) + ";parent=" + Win(parent) + ";root=" + Cls(GetAncestor(main, 2)) + ";");
+    IntPtr prev = GetWindow(main, 3);
+    int above = 0; while (prev != IntPtr.Zero && above < 6) { o.Append("above" + above + "=" + Win(prev) + ";"); prev = GetWindow(prev, 3); above++; }
+    IntPtr list = parent != IntPtr.Zero ? FindWindowEx(parent, IntPtr.Zero, "SysListView32", null) : IntPtr.Zero;
+    if (list != IntPtr.Zero) {
+      uint key; byte alpha; uint flags;
+      bool lw = GetLayeredWindowAttributes(list, out key, out alpha, out flags);
+      IntPtr bk; SendMessageTimeout(list, 0x1000, IntPtr.Zero, IntPtr.Zero, 2, 500, out bk);
+      o.Append("list=" + Win(list) + ",layered=" + (lw ? ("key" + key.ToString("X") + "/a" + alpha + "/f" + flags) : "no") + ",bk=" + (bk.ToInt64() & 0xFFFFFFFF).ToString("X") + ";");
+    }
+    o.Append("fg=" + Win(GetForegroundWindow()));
+    return o.ToString();
+  }
+}
+"@
+[NotBlindBlackProbe]::Run([Int64]__MAIN__)
+`;
+let desktopBlackProbeBusy = false;
+function probeDesktopBlackScreenNative(win, reason = 'black') {
+  if (process.platform !== 'win32' || desktopBlackProbeBusy || !win || win.isDestroyed()) return Promise.resolve('');
+  let handle = '';
+  try { handle = nativeWindowHandleDecimal(win); } catch (_) { handle = ''; }
+  if (!/^\d+$/.test(handle)) return Promise.resolve('');
+  desktopBlackProbeBusy = true;
+  return new Promise((resolve) => {
+    try {
+      const env = { ...process.env, TEMP: NATIVE_SCRIPT_TEMP_PATH, TMP: NATIVE_SCRIPT_TEMP_PATH };
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', DESKTOP_BLACK_PROBE_SCRIPT.replace('__MAIN__', handle)], {
+        windowsHide: true, timeout: 9000, maxBuffer: 64 * 1024, env,
+      }, (error, stdout, stderr) => {
+        const out = String(stdout || '').trim() || String(error && error.message || stderr || '').trim();
+        desktopBlackProbeBusy = false;
+        desktopBlackWatchdogLog({ action: 'probe', reason, native: out.slice(0, 1500) });
+        resolve(out);
+      });
+    } catch (error) {
+      desktopBlackProbeBusy = false;
+      resolve(String(error && error.message || error));
+    }
+  });
+}
+
+function scheduleDesktopBlackRecheck(reason, delayMs) {
+  if (desktopBlackRecheckTimer) clearTimeout(desktopBlackRecheckTimer);
+  desktopBlackRecheckTimer = setTimeout(() => {
+    desktopBlackRecheckTimer = null;
+    runDesktopBlackScreenCheck(reason).catch(() => {});
+  }, delayMs);
+  if (typeof desktopBlackRecheckTimer.unref === 'function') desktopBlackRecheckTimer.unref();
+}
+
+// 退出再贴回：用户手动按 Esc 退出后画面就回来了，这里把"退出 → 重新进入"自动做一遍（不播拼图、不重设壁纸）
+async function cycleFullDesktopModeForBlackScreen(reason = 'black-screen-cycle') {
+  const before = fullDesktopModeRuntime.getStatus(`${reason}-before`);
+  if (before.enabled !== true || desktopBlackRecoveryBusy) return { ok: false, skipped: true };
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return { ok: false, skipped: true };
+  const interactive = before.interactive === true;
+  const locked = before.softwareInteractionLocked === true;
+  desktopBlackRecoveryBusy = true;
+  desktopBlackWatchdogLastCycleAt = Date.now();
+  desktopBlackWatchdogStats.cycles += 1;
+  try {
+    await disableFullDesktopMode('black-screen-cycle');
+    await startupDelay(450);
+    if (appQuitting || !mainWindow || mainWindow.isDestroyed()) return { ok: false };
+    const result = await enableFullDesktopMode(mainWindow, { interactive, reason: 'black-screen-cycle' });
+    if (result && result.enabled === true && locked) {
+      await fullDesktopModeRuntime.setSoftwareInteractionLocked(true, 'black-screen-cycle-relock').catch(() => false);
+    }
+    desktopBlackWatchdogLog({ action: 'cycle-done', reason, ok: !!(result && result.enabled === true), interactive, locked });
+    return result;
+  } catch (error) {
+    desktopBlackWatchdogLog({ action: 'cycle-failed', reason, error: String(error && error.message || error).slice(0, 200) });
+    return { ok: false, error: String(error && error.message || error) };
+  } finally {
+    desktopBlackRecoveryBusy = false;
+  }
+}
+
+function notifyRendererDesktopBlack(message) {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('notblind-desktop-black-notice', { message: String(message || '') });
+  } catch (_) { }
+}
+
+// 前台是别的软件时（很可能整个挡住了桌面）不做逐格对比，免得把"被别的窗口挡住"当成黑屏
+function desktopBlackForegroundAllowsCompare() {
+  try {
+    if (!desktopForegroundWatch || !desktopForegroundWatch.hasState()) return null;
+    return desktopForegroundWatch.foregroundIsDesktopOrSelf([process.pid]);
+  } catch (_) { return null; }
+}
+
 async function runDesktopBlackScreenCheck(reason = 'interval') {
-  if (desktopBlackWatchdogBusy || appQuitting) return null;
+  if (desktopBlackWatchdogBusy || desktopBlackRecoveryBusy || appQuitting) return null;
   const win = mainWindow;
   if (!win || win.isDestroyed() || !win.webContents || win.webContents.isDestroyed()) return null;
   const status = fullDesktopModeRuntime.getStatus('black-watchdog');
   if (status.enabled !== true || (status.phase !== 'interactive' && status.phase !== 'passive')) return null;
   if (fullDesktopEnablePending || fullDesktopEscapeExitPending || fullDesktopModeHostVisibilityTransitionDepth > 0) return null;
   if (win.isMinimized() || !win.isVisible()) return null;
+  // 最前面是不是桌面 / Not Blind 自己：true = 用户正看着桌面；false = 在用别的软件；null = 不知道
+  const foregroundOk = desktopBlackForegroundAllowsCompare();
   desktopBlackWatchdogBusy = true;
   try {
     desktopBlackWatchdogStats.checks += 1;
     const screenSample = await sampleDesktopScreenDarkness(win);
     if (!screenSample || screenSample.dark == null) return null;
-    if (screenSample.dark < DESKTOP_BLACK_WATCHDOG_SCREEN_DARK) {
+    const pageSample = await sampleMainWindowPageDarkness(win).catch(() => null);
+    const compare = pageSample ? compareScreenToPageLuma(screenSample.grid, pageSample.grid) : null;
+    const screenBlack = screenSample.dark >= DESKTOP_BLACK_WATCHDOG_SCREEN_DARK;
+    const screenMean = screenSample.grid ? screenSample.grid.mean : null;
+    // 三种"黑屏"判定：
+    //  A 原来那条：屏幕几乎全黑，而 Not Blind 画出来的不黑（亮色 / 中等亮度主题）
+    //  B 逐格对比：屏幕上看得见 Not Blind 的那些格子里，90% 以上是黑的（开着别的窗口、深色主题、图标还显示着时也能认出来）
+    //  C 屏幕纯黑、Not Blind 的画面却截不出来（合成器已经停了）
+    const ruleA = screenBlack && !!pageSample && pageSample.dark != null && pageSample.dark <= DESKTOP_BLACK_WATCHDOG_PAGE_DARK;
+    const ruleB = !!compare && compare.lost >= 24 && compare.lostFraction >= 0.9;
+    const ruleC = foregroundOk !== false && !pageSample && screenBlack && screenMean != null && screenMean < 1.5;
+    if (!ruleA && !ruleB && !ruleC) {
+      if (desktopBlackWatchdogStrikes > 0 || desktopBlackLastStage > 0) {
+        // 记下"做到第几级之后好的"——下次就知道哪一招管用
+        desktopBlackWatchdogLog({ action: 'recovered', reason, afterStage: desktopBlackLastStage, strikes: desktopBlackWatchdogStrikes, screenDark: Number(screenSample.dark.toFixed(3)), compare });
+      }
       desktopBlackWatchdogStrikes = 0;
-      return { black: false, screenDark: screenSample.dark };
-    }
-    const pageSample = await sampleMainWindowPageDarkness(win);
-    if (!pageSample || pageSample.dark == null || pageSample.dark > DESKTOP_BLACK_WATCHDOG_PAGE_DARK) {
-      // 画面本来就黑（深色主题 / 还没画出来），不算故障
-      return { black: false, screenDark: screenSample.dark, pageDark: pageSample && pageSample.dark };
+      desktopBlackLastStage = 0;
+      return { black: false, screenDark: screenSample.dark, pageDark: pageSample && pageSample.dark, compare };
     }
     desktopBlackWatchdogStrikes += 1;
     desktopBlackWatchdogStats.detections += 1;
@@ -1897,36 +2201,80 @@ async function runDesktopBlackScreenCheck(reason = 'interval') {
     const entry = {
       reason,
       strike: desktopBlackWatchdogStrikes,
+      rule: ruleA ? 'A' : (ruleB ? 'B' : 'C'),
       screenDark: Number(screenSample.dark.toFixed(3)),
-      pageDark: Number(pageSample.dark.toFixed(3)),
+      pageDark: pageSample && pageSample.dark != null ? Number(pageSample.dark.toFixed(3)) : null,
+      compare,
+      foreground: (() => { try { return desktopForegroundWatch && desktopForegroundWatch.state ? desktopForegroundWatch.state.className : ''; } catch (_) { return ''; } })(),
       compositorKeepAlive: DESKTOP_COMPOSITOR_KEEP_ALIVE,
       bgThrottling: win.webContents.getBackgroundThrottling ? win.webContents.getBackgroundThrottling() : null,
       phase: status.phase,
+      locked: status.softwareInteractionLocked === true,
+      iconsVisible: status.desktopIconsVisible,
+      iconLayerMode: status.iconLayerMode || '',
       idleSeconds: (() => { try { return powerMonitor.getSystemIdleTime(); } catch (_) { return null; } })(),
     };
     console.warn('[FullDesktopMode] black screen detected:', JSON.stringify(entry));
-    if (now - desktopBlackWatchdogLastLogAt > 5000) {
+    if (now - desktopBlackWatchdogLastLogAt > 3000) {
       desktopBlackWatchdogLastLogAt = now;
       desktopBlackWatchdogLog(entry);
       if (DESKTOP_DEBUG_ENABLED) {
         try {
           fs.writeFileSync(path.join(DESKTOP_DEBUG_DIR, 'black-screen-screen.png'), screenSample.image.toPNG());
-          fs.writeFileSync(path.join(DESKTOP_DEBUG_DIR, 'black-screen-page.png'), pageSample.image.toPNG());
+          if (pageSample) fs.writeFileSync(path.join(DESKTOP_DEBUG_DIR, 'black-screen-page.png'), pageSample.image.toPNG());
         } catch (_) { }
       }
     }
-    if (desktopBlackWatchdogStrikes === 1) {
+    // 用户正在用别的软件（前台不是桌面）：只做第一级（无感的），不往下升级——
+    // 万一是别的软件的黑色窗口挡着造成的误判，也不会去动桌面模式；等用户回到桌面时再接着处理
+    if (foregroundOk === false && desktopBlackWatchdogStrikes > 1) {
+      desktopBlackWatchdogStrikes = 1;
+      return { black: true, deferred: true, ...entry };
+    }
+    // 逐级处理：每一级之后隔几秒再查一次，好了就停（哪一级之后好的，会记成 recovered + strikes，方便下次对症）
+    const strikes = desktopBlackWatchdogStrikes;
+    if (strikes === 1) {
+      // 1) 无感的：踢一下合成器 + 让图标层守护重新套一次透明色 / 背景色 / 层级；顺便记下现场
+      desktopBlackLastStage = 1;
+      desktopBlackWatchdogLog({ action: 'stage1-kick', strike: strikes });
       kickMainWindowCompositor(win, `${reason}-strike-1`);
-    } else if (now - desktopBlackWatchdogLastReconcileAt > DESKTOP_BLACK_WATCHDOG_RECONCILE_GAP_MS) {
+      if (status.interactive === true && typeof fullDesktopModeRuntime.ensureIconLayerOrder === 'function') {
+        fullDesktopModeRuntime.ensureIconLayerOrder().catch((error) => {
+          desktopBlackWatchdogLog({ action: 'icon-layer-reassert-failed', error: String(error && error.message || error).slice(0, 160) });
+        });
+      }
+      probeDesktopBlackScreenNative(win, reason).catch(() => {});
+      if (foregroundOk !== false) scheduleDesktopBlackRecheck('black-recheck-1', 3500);
+    } else if (strikes === 2) {
+      // 2) 让窗口藏一下再露出来（Chromium 重新交画面）
+      desktopBlackLastStage = 2;
+      desktopBlackWatchdogLog({ action: 'stage2-visibility-pulse', strike: strikes });
+      pulseDesktopWindowVisibility(win, `${reason}-strike-2`);
+      scheduleDesktopBlackRecheck('black-recheck-2', 4000);
+    } else if (strikes === 3 && now - desktopBlackWatchdogLastReconcileAt > DESKTOP_BLACK_WATCHDOG_RECONCILE_GAP_MS) {
+      // 3) 把窗口从图标层摘下来重新挂一次
       desktopBlackWatchdogLastReconcileAt = now;
       desktopBlackWatchdogStats.reconciles += 1;
       console.warn('[FullDesktopMode] black screen persists, re-attaching desktop window');
-      desktopBlackWatchdogLog({ ...entry, action: 'reconcile' });
+      desktopBlackLastStage = 3;
+      desktopBlackWatchdogLog({ action: 'stage3-reconcile', strike: strikes });
       reconcileFullDesktopMode('black-screen-recovery').catch((error) => {
         console.warn('[FullDesktopMode] black-screen reconcile failed:', error && error.message || error);
-      });
-    } else {
-      kickMainWindowCompositor(win, `${reason}-strike-${desktopBlackWatchdogStrikes}`);
+      }).finally(() => scheduleDesktopBlackRecheck('black-recheck-3', 6000));
+    } else if (strikes >= 3 && now - desktopBlackWatchdogLastCycleAt > DESKTOP_BLACK_WATCHDOG_CYCLE_GAP_MS) {
+      // 4) 自动做一遍"退出 → 重新进入"（等于用户手动按 Esc 再进来）
+      desktopBlackLastStage = 4;
+      desktopBlackWatchdogLog({ action: 'stage4-cycle', strike: strikes });
+      desktopBlackWatchdogStrikes = 0;
+      cycleFullDesktopModeForBlackScreen('black-screen-cycle').finally(() => scheduleDesktopBlackRecheck('black-recheck-4', 8000));
+    } else if (strikes >= 3) {
+      // 5) 刚贴回过还是黑：先退回窗口，至少有画面；告诉用户发生了什么
+      desktopBlackWatchdogStats.exits += 1;
+      desktopBlackLastStage = 0;
+      desktopBlackWatchdogLog({ action: 'stage5-exit-to-window', strike: strikes });
+      desktopBlackWatchdogStrikes = 0;
+      disableFullDesktopMode('black-screen-exit').catch(() => {});
+      notifyRendererDesktopBlack('桌面背景刚才黑屏了，已先退回窗口。可以再点「桌面背景」重新进入；这次的情况已记进日志。');
     }
     return { black: true, ...entry };
   } catch (error) {
@@ -1935,6 +2283,14 @@ async function runDesktopBlackScreenCheck(reason = 'interval') {
   } finally {
     desktopBlackWatchdogBusy = false;
   }
+}
+
+// 用户回到桌面（点了桌面 / Win+D）时顺手查一次：这正是会看到黑屏的时候
+function scheduleDesktopBlackCheckOnDesktopForeground() {
+  const now = Date.now();
+  if (now - desktopBlackLastForegroundCheckAt < 20000) return;
+  desktopBlackLastForegroundCheckAt = now;
+  scheduleDesktopBlackScreenChecks('desktop-foreground', [1200]);
 }
 
 // ============================================================
@@ -1951,6 +2307,7 @@ async function runDesktopBlackScreenCheck(reason = 'interval') {
 // ============================================================
 const WINDOWED_KEEPALIVE_MS = 15000;
 const WINDOWED_KEEPALIVE_IDLE_SECONDS = 10;
+const WINDOWED_UNFOCUSED_KICK_MS = 60000;
 let windowedLastKickAt = 0;
 let windowedLastIdleSnapshotAt = 0;
 
@@ -1999,7 +2356,7 @@ function applyMainWindowTaskbarIdentity(win, reason = '') {
   }
 }
 
-function kickWindowedCompositor(win, reason = 'windowed', strong = false) {
+function kickWindowedCompositor(win, reason = 'windowed', strong = false, quiet = false) {
   if (!windowedCompositorApplies(win)) return false;
   const now = Date.now();
   if (!strong && now - windowedLastKickAt < 1000) return false;
@@ -2028,6 +2385,7 @@ function kickWindowedCompositor(win, reason = 'windowed', strong = false) {
     }
   }
   try { sendWindowState(win); } catch (_) { }
+  if (quiet) return true;
   console.warn('[WindowedCompositor] kick:', reason, strong ? '(strong)' : '');
   scheduleDesktopDebug(`windowed-kick-${String(reason).slice(0, 30)}`, [400], { reason, strong });
   return true;
@@ -2039,19 +2397,29 @@ function scheduleWindowedCompositorKicks(reason, delays = [800, 3000], strong = 
   }
 }
 
-// 闲置保活：只在用户一段时间没操作时整窗重画一帧；有操作时界面自己会不停出新帧，不用管
+// 保活：整窗重画一帧。原来只在"整台电脑闲置 ≥10 秒"时才做，但用户在别的软件里打字 / 操作时电脑不算闲置，
+// Not Blind 自己却没人碰 —— 这正是"在别的软件用键盘时 Not Blind 突然消失"的时候。
+// 现在：只要 Not Blind 窗口不在最前面（没获得焦点），或者电脑闲置，都定时刷一帧（一帧的开销可忽略）；
+// 只有"Not Blind 在最前面且用户正在操作"时跳过（这时界面自己会不停出新帧）。
 const windowedKeepAliveTimer = setInterval(() => {
   const win = mainWindow;
   if (!windowedCompositorApplies(win)) return;
   let idleSeconds = 0;
   try { idleSeconds = powerMonitor.getSystemIdleTime(); } catch (_) { idleSeconds = 0; }
-  if (idleSeconds < WINDOWED_KEEPALIVE_IDLE_SECONDS) return;
+  let focused = false;
+  try { focused = win.isFocused(); } catch (_) { focused = false; }
+  if (focused && idleSeconds < WINDOWED_KEEPALIVE_IDLE_SECONDS) return;
   try { win.webContents.invalidate(); } catch (_) { }
-  // 诊断：闲置期间每 2 分钟记一次状态（只在源码运行时）
   const now = Date.now();
+  // 不在最前面时，每分钟再轻踢一次合成器（不改尺寸、不截图）：万一画面已经被摘掉，最多一分钟就接回来，
+  // 不用等用户点它
+  if (!focused && now - windowedLastKickAt > WINDOWED_UNFOCUSED_KICK_MS) {
+    kickWindowedCompositor(win, 'unfocused-keepalive', false, true);
+  }
+  // 诊断：闲置 / 在后台期间每 2 分钟记一次状态（只在源码运行时）
   if (DESKTOP_DEBUG_ENABLED && now - windowedLastIdleSnapshotAt > 120000) {
     windowedLastIdleSnapshotAt = now;
-    desktopDebugSnapshot('windowed-idle', { idleSeconds }).catch(() => {});
+    desktopDebugSnapshot('windowed-idle', { idleSeconds, focused }).catch(() => {});
   }
 }, WINDOWED_KEEPALIVE_MS);
 if (typeof windowedKeepAliveTimer.unref === 'function') windowedKeepAliveTimer.unref();
@@ -2441,7 +2809,9 @@ async function disableFullDesktopMode(reason = 'disabled') {
     syncFullDesktopEscapeShortcut(`${reason}-escape`);
     if (wasEnabled) {
       setTimeout(() => repaintMainWindowAfterDesktopExit(mainWindow), 120);
-      if (fullDesktopModeRuntime.getStatus(`${reason}-desktop-refresh`).enabled !== true) {
+      // [二改][修黑屏 2] 黑屏自动"退出再贴回"时马上就要重新进入，别去重设壁纸 / 动图标层（会和重新进入打架）
+      if (reason !== 'black-screen-cycle'
+        && fullDesktopModeRuntime.getStatus(`${reason}-desktop-refresh`).enabled !== true) {
         refreshWindowsDesktopAfterExit(reason).catch(() => {});
       }
       scheduleDesktopDebug('exit-after', [400, 1600, 4000], { reason });
@@ -3047,6 +3417,11 @@ function focusMainWindow() {
   markMainWindowExpectedVisible(mainWindow, true, 'focus-main-window');
   const desktopMode = fullDesktopModeRuntime.getStatus('focus-main-window');
   if (desktopMode.enabled === true) {
+    // [二改][修黑屏 2] 桌面模式里点托盘 / 任务栏图标 = 用户想看到 Not Blind：先无感地重画一次画面，再马上查一次黑屏
+    try {
+      kickMainWindowCompositor(mainWindow, 'focus-main-window');
+      scheduleDesktopBlackScreenChecks('focus-main-window', [900]);
+    } catch (_) { }
     if (desktopMode.interactive === true && desktopMode.softwareInteractionLocked === true) {
       setDesktopSoftwareUnlocked('focus-main-window');
       return true;
@@ -3085,6 +3460,16 @@ function createOrUpdateTray() {
       label: '解锁软件操作',
       visible: desktopMode.enabled === true && desktopMode.softwareInteractionLocked === true,
       click: () => { setDesktopSoftwareUnlocked('tray-unlock'); },
+    },
+    {
+      // [二改][修黑屏 2] 桌面背景黑了、或者画面不对：手动"退出再贴回"一次
+      label: '桌面背景黑了？重新贴回',
+      visible: desktopMode.enabled === true,
+      click: () => {
+        desktopBlackWatchdogLog({ action: 'tray-reattach' });
+        probeDesktopBlackScreenNative(mainWindow, 'tray-reattach').catch(() => {});
+        cycleFullDesktopModeForBlackScreen('tray-reattach').catch(() => {});
+      },
     },
     {
       label: '退出完整桌面模式',
@@ -6089,7 +6474,10 @@ function configureLocalServerEnvironment(port) {
   process.env.QISHUI_TOKEN_FILE = path.join(STABLE_USER_DATA_PATH, '.qishui-token');
   process.env.QISHUI_QR_CONFIG_FILE = path.join(STABLE_USER_DATA_PATH, '.qishui-qr-login.json');
   process.env.MINERADIO_LISTEN_SYNC_FILE = path.join(STABLE_USER_DATA_PATH, 'listen-sync-journal.json');
-  process.env.MINERADIO_LOGIN_EASTER_EGG_GATE_FILE = path.join(STABLE_USER_DATA_PATH, LOGIN_EASTER_EGG_STATE_FILE);
+  // [二改][登录彩蛋] 不设口令门时不把状态文件交给本地服务，服务端就不会拦登录接口
+  process.env.MINERADIO_LOGIN_EASTER_EGG_GATE_FILE = loginEasterEggGate.gated
+    ? path.join(STABLE_USER_DATA_PATH, LOGIN_EASTER_EGG_STATE_FILE)
+    : '';
   process.env.MINERADIO_LOGIN_EASTER_EGG_GATE_VERSION = LOGIN_EASTER_EGG_GATE_VERSION;
   if (!process.env.QISHUI_OAUTH_CONFIG_FILE) {
     process.env.QISHUI_OAUTH_CONFIG_FILE = path.join(STABLE_USER_DATA_PATH, '.qishui-oauth.json');
@@ -7077,6 +7465,7 @@ if (!gotSingleInstanceLock) {
     wallpaperEngineLibrary.dispose();
     stopMemoryAutoTimer();
     unregisterFullDesktopEscapeShortcut();
+    try { desktopForegroundWatch.stop(); } catch (_) { }
     unregisterMineradioGlobalHotkeys();
     closeDesktopLyricsWindow();
     if (localServer && localServer.close) localServer.close();

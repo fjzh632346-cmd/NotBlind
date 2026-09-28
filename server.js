@@ -43,6 +43,10 @@ const {
   personalized,
   recommend_resource,
   recommend_songs,
+  personal_fm,
+  personal_fm_mode,
+  personalized_newsong,
+  toplist,
   dj_detail,
   dj_program,
   dj_hot,
@@ -77,6 +81,8 @@ const {
   handleKugouSongUrl,
   handleKugouLyric,
   handleKugouGuessLike,
+  handleKugouGuessRadio,
+  handleKugouRankList,
   handleKugouUserPlaylists,
   handleKugouPlaylistTracks,
   handleKugouLikeCheck,
@@ -3307,6 +3313,10 @@ async function handleQQUserPlaylists() {
 
 async function handleQQPlaylistTracks(id, opts) {
   opts = opts || {};
+  // 排行榜 / 新歌首发 以"虚拟歌单"的形式出现在发现页，复用歌单详情、按页加载、播放队列那一整套
+  const virtualId = String(id || '').trim();
+  if (virtualId.indexOf(QQ_TOPLIST_ID_PREFIX) === 0) return handleQQToplistTracks(virtualId, opts);
+  if (virtualId.indexOf(QQ_NEWSONG_ID_PREFIX) === 0) return handleQQNewSongTracks(virtualId, opts);
   const info = await getQQLoginInfo();
   if (!info.loggedIn || !info.userId) return { loggedIn: false, provider: 'qq', tracks: [] };
   const pid = String(id || '').trim();
@@ -3512,6 +3522,523 @@ async function qqFullSongSearch(keywords, limit, offset) {
   return (Array.isArray(items) ? items : [])
     .map(item => mapQQTrack(item && (item.track_info || item.songInfo || item.songinfo || item.song) || item, {}))
     .filter(song => song && song.name && (song.mid || song.id));
+}
+
+// ---------- QQ 推荐 / 发现 / 电台 ----------
+// 都是 QQ 音乐平台真实下发的推荐内容（猜你喜欢、雷达、新歌首发、排行榜、推荐歌单、主题电台），
+// 不再拿用户自己的歌单充数——点推荐 / 发现 / 电台的人，想听的是自己平时不常听的歌。
+const QQ_DISCOVER_CACHE_TTL_MS = 20 * 60 * 1000;
+const QQ_DISCOVER_TOPLIST_IDS = [62, 27, 26, 4]; // 飙升榜 / 新歌榜 / 热歌榜 / 流行指数榜
+const QQ_DISCOVER_RADIO_GROUPS = ['心情', '场景', '曲风', '主题', '语言'];
+// 非音乐或不适合随手点开的电台（白噪音、胎教、哄睡、门店背景、音乐故事、儿童）
+const QQ_DISCOVER_RADIO_SKIP = new Set([99, 101, 314, 341, 584, 682, 686, 702, 703]);
+const QQ_TOPLIST_ID_PREFIX = 'top_';
+const QQ_NEWSONG_ID_PREFIX = 'newsong_';
+const qqDiscoverCache = new Map();
+const QQ_DAILY_LABELS = {
+  'guess+radar': 'QQ 音乐 · 猜你喜欢 + 雷达推荐',
+  guess: 'QQ 音乐 · 猜你喜欢',
+  radar: 'QQ 音乐 · 雷达推荐',
+  newsong: 'QQ 音乐 · 新歌首发',
+};
+
+function qqRecommendComm(cookieObj) {
+  cookieObj = cookieObj || qqCookieObject();
+  const comm = { ct: 24, cv: 0, format: 'json' };
+  const uin = qqCookieUin(cookieObj);
+  const musicKey = qqCookiePlaybackKey(cookieObj) || qqCookieMusicKey(cookieObj);
+  if (uin) comm.uin = uin;
+  if (musicKey) comm.authst = musicKey;
+  return comm;
+}
+
+function qqModuleData(json, key) {
+  const block = json && json[key];
+  if (!block || Number(block.code || 0) !== 0) return null;
+  return block.data || null;
+}
+
+// 电台里夹着的"《歌名》歌手：一句话"导读音频，不是歌
+function isQQRadioTalkTrack(track) {
+  const name = String(track && (track.name || track.title) || '');
+  return /^(?:【[^】]{0,12}】\s*)?《[^》]{1,40}》[^：:]{0,24}[：:]/.test(name);
+}
+
+function mapQQRecommendTracks(rawList, opts) {
+  opts = opts || {};
+  const seen = new Set();
+  const out = [];
+  (Array.isArray(rawList) ? rawList : []).forEach(raw => {
+    const track = raw && (raw.Track || raw.track_info || raw.songInfo || raw) || null;
+    if (!track) return;
+    if (opts.skipTalk && isQQRadioTalkTrack(track)) return;
+    const song = mapQQTrack(track, {});
+    if (!song || !song.name || !(song.mid || song.id)) return;
+    const key = String(song.mid || song.id);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(song);
+  });
+  return out;
+}
+
+function mergeQQTrackLists(lists) {
+  const seen = new Set();
+  const out = [];
+  (lists || []).forEach(list => (list || []).forEach(song => {
+    const key = String(song && (song.mid || song.id) || '');
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(song);
+  }));
+  return out;
+}
+
+function mapQQToplistSummary(top) {
+  top = top || {};
+  const id = Number(top.topId || top.topid || 0);
+  if (!id) return null;
+  const preview = (Array.isArray(top.song) ? top.song : []).slice(0, 3)
+    .map(s => [s && s.title, s && s.singerName].filter(Boolean).join(' - '))
+    .filter(Boolean);
+  return {
+    provider: 'qq',
+    listType: 'toplist',
+    id: QQ_TOPLIST_ID_PREFIX + id,
+    topId: id,
+    name: String(top.title || top.titleDetail || '排行榜'),
+    cover: top.frontPicUrl || top.headPicUrl || top.mbFrontPicUrl || top.mbHeadPicUrl || '',
+    trackCount: Number(top.totalNum) || 0,
+    playCount: Number(top.listenNum) || 0,
+    period: String(top.period || ''),
+    updateTime: String(top.updateTime || ''),
+    creator: 'QQ 音乐排行榜',
+    preview,
+  };
+}
+
+function mapQQRecommendPlaylists(hotData, squareData) {
+  const out = [];
+  const seen = new Set();
+  function push(pl) {
+    if (!pl || !pl.id || seen.has(pl.id) || !pl.name) return;
+    seen.add(pl.id);
+    out.push(pl);
+  }
+  const hot = hotData && Array.isArray(hotData.v_hot) ? hotData.v_hot : [];
+  hot.forEach(item => {
+    if (!item || !Number(item.content_id)) return;
+    push({
+      provider: 'qq',
+      listType: 'recommend',
+      id: String(item.content_id),
+      name: String(item.title || ''),
+      cover: item.cover || '',
+      trackCount: 0,
+      playCount: Number(item.listen_num) || 0,
+      creator: String(item.username || ''),
+      tag: String(item.rcmdtemplate || ''),
+    });
+  });
+  const square = squareData && Array.isArray(squareData.List) ? squareData.List : [];
+  square.forEach(entry => {
+    const basic = entry && entry.Playlist && entry.Playlist.basic;
+    if (!basic || !Number(basic.tid)) return;
+    const cover = basic.cover || {};
+    push({
+      provider: 'qq',
+      listType: 'recommend',
+      id: String(basic.tid),
+      name: String(basic.title || ''),
+      cover: cover.default_url || cover.medium_url || cover.small_url || '',
+      trackCount: Number(basic.song_cnt) || 0,
+      playCount: Number(basic.play_cnt) || 0,
+      creator: String(basic.creator && basic.creator.nick || ''),
+      tag: '为你推荐',
+    });
+  });
+  return out;
+}
+
+function mapQQRadioStations(radioData) {
+  const groups = radioData && Array.isArray(radioData.radio_list) ? radioData.radio_list : [];
+  const byTitle = new Map(groups.map(g => [String(g && g.title || ''), g]));
+  const out = [];
+  const seen = new Set();
+  QQ_DISCOVER_RADIO_GROUPS.forEach(groupTitle => {
+    const group = byTitle.get(groupTitle);
+    (group && Array.isArray(group.list) ? group.list : []).forEach(item => {
+      const id = Number(item && item.id);
+      if (!id || seen.has(id) || QQ_DISCOVER_RADIO_SKIP.has(id)) return;
+      seen.add(id);
+      out.push({
+        provider: 'qq',
+        id: String(id),
+        name: String(item.title || ''),
+        sub: 'QQ 音乐 · ' + groupTitle + '电台',
+        group: groupTitle,
+        cover: item.pic_url || '',
+        listenNum: Number(item.listenNum) || 0,
+      });
+    });
+  });
+  return out.filter(r => r.name);
+}
+
+function qqDiscoverCacheKey(cookieObj) {
+  const uin = qqCookieUin(cookieObj) || 'guest';
+  const key = qqCookiePlaybackKey(cookieObj) || qqCookieMusicKey(cookieObj) || '';
+  return uin + ':' + crypto.createHash('sha1').update(String(key)).digest('hex').slice(0, 12);
+}
+
+async function handleQQDiscover(opts) {
+  opts = opts || {};
+  const cookieObj = qqCookieObject();
+  const uin = qqCookieUin(cookieObj);
+  const loggedIn = !!(uin && qqCookieMusicKey(cookieObj));
+  const cacheKey = qqDiscoverCacheKey(cookieObj);
+  const cached = qqDiscoverCache.get(cacheKey);
+  if (!opts.force && cached && Date.now() - cached.at < QQ_DISCOVER_CACHE_TTL_MS) return cached.value;
+
+  const payload = {
+    comm: qqRecommendComm(cookieObj),
+    radar: { module: 'music.recommend.TrackRelationServer', method: 'GetRadarSong', param: { Page: 1, ReqType: 0, FavSongs: [], EntranceSongs: [] } },
+    newsong: { module: 'newsong.NewSongServer', method: 'get_new_song_info', param: { type: 5 } },
+    hot: { module: 'playlist.HotRecommendServer', method: 'get_hot_recommend', param: { async: 1, cmd: 2 } },
+    square: { module: 'music.playlist.PlaylistSquare', method: 'GetRecommendFeed', param: { From: 0, Size: 20 } },
+    tops: { module: 'musicToplist.ToplistInfoServer', method: 'GetAll', param: {} },
+    radios: { module: 'pf.radiosvr', method: 'GetRadiolist', param: { ct: '24' } },
+  };
+  if (loggedIn) {
+    // 猜你喜欢是随机流，一次只给几首；并发取几批凑够一份"今日推荐"
+    for (let i = 0; i < 5; i += 1) {
+      payload['guess' + i] = { module: 'mb_track_radio_svr', method: 'get_radio_track', param: { id: 99, firstplay: 1, num: 10 } };
+    }
+  }
+  const json = await qqMusicRequest(payload, { cookie: true, timeoutMs: 12000 });
+  const errors = {};
+  const note = (key) => { const b = json && json[key]; if (!b || Number(b.code || 0) !== 0) errors[key] = b ? (b.code || 'ERROR') : 'MISSING'; };
+  Object.keys(payload).filter(k => k !== 'comm').forEach(note);
+
+  const guessLists = [];
+  for (let i = 0; i < 5; i += 1) {
+    const d = qqModuleData(json, 'guess' + i);
+    if (d && Array.isArray(d.tracks)) guessLists.push(mapQQRecommendTracks(d.tracks, { skipTalk: true }));
+  }
+  const guess = mergeQQTrackLists(guessLists);
+  const radarData = qqModuleData(json, 'radar');
+  const radar = mapQQRecommendTracks(radarData && radarData.VecSongs);
+  const newData = qqModuleData(json, 'newsong');
+  const newSongs = mapQQRecommendTracks(newData && newData.songlist);
+  const topsData = qqModuleData(json, 'tops');
+  const allTops = [];
+  (topsData && Array.isArray(topsData.group) ? topsData.group : []).forEach(g => (g && g.toplist || []).forEach(t => allTops.push(t)));
+  const toplists = QQ_DISCOVER_TOPLIST_IDS
+    .map(id => allTops.find(t => Number(t && t.topId) === id))
+    .map(mapQQToplistSummary)
+    .filter(Boolean);
+  const playlists = mapQQRecommendPlaylists(qqModuleData(json, 'hot'), qqModuleData(json, 'square'));
+  const radios = mapQQRadioStations(qqModuleData(json, 'radios'));
+  if (loggedIn) {
+    radios.unshift(
+      { provider: 'qq', id: '99', name: '猜你喜欢', sub: 'QQ 音乐私人电台 · 按你的口味推你没听过的', group: '私人', personal: true },
+      { provider: 'qq', id: '101', name: '随心听', sub: 'QQ 音乐 · 随机发现', group: '私人', personal: true }
+    );
+  }
+
+  // 今日推荐：登录时优先猜你喜欢，其次雷达；都拿不到才用新歌首发
+  let dailySongs = mergeQQTrackLists([guess, radar]).slice(0, 40);
+  let dailyMode = guess.length ? (radar.length ? 'guess+radar' : 'guess') : (radar.length ? 'radar' : '');
+  if (!dailySongs.length && newSongs.length) {
+    dailySongs = newSongs.slice(0, 30);
+    dailyMode = 'newsong';
+  }
+  const value = {
+    provider: 'qq',
+    loggedIn,
+    personalized: loggedIn && guess.length > 0,
+    daily: { mode: dailyMode, label: QQ_DAILY_LABELS[dailyMode] || 'QQ 音乐 · 为你推荐', songs: dailySongs },
+    guess,
+    radar,
+    newSongs,
+    newSongLabel: String(newData && newData.lan || '最新'),
+    toplists,
+    playlists,
+    radios,
+    errors,
+    updatedAt: Date.now(),
+  };
+  const usable = dailySongs.length || toplists.length || playlists.length || radios.length;
+  if (usable) qqDiscoverCache.set(cacheKey, { at: Date.now(), value });
+  return value;
+}
+
+async function handleQQToplistTracks(topId, opts) {
+  opts = opts || {};
+  const id = parseInt(String(topId || '').replace(QQ_TOPLIST_ID_PREFIX, ''), 10) || 0;
+  if (!id) return { provider: 'qq', error: 'MISSING_TOPLIST_ID', tracks: [] };
+  const limit = Math.max(1, Math.min(300, parseInt(opts.limit || '100', 10) || 100));
+  const offset = Math.max(0, parseInt(opts.offset || '0', 10) || 0);
+  const json = await qqMusicRequest({
+    comm: qqRecommendComm(),
+    req: { module: 'musicToplist.ToplistInfoServer', method: 'GetDetail', param: { topId: id, offset, num: limit } },
+  }, { cookie: true, timeoutMs: 12000 });
+  const data = qqModuleData(json, 'req');
+  if (!data) return { provider: 'qq', error: 'QQ_TOPLIST_FAILED', tracks: [] };
+  const info = mapQQToplistSummary(data.data || { topId: id }) || { id: QQ_TOPLIST_ID_PREFIX + id, name: '排行榜' };
+  const tracks = mapQQRecommendTracks(data.songInfoList);
+  const total = Number(data.data && data.data.totalNum) || (offset + tracks.length);
+  return {
+    loggedIn: true,
+    provider: 'qq',
+    playlist: { provider: 'qq', id: info.id, name: info.name, cover: info.cover, trackCount: total },
+    tracks,
+    offset,
+    limit,
+    nextOffset: offset + tracks.length,
+    hasMore: tracks.length > 0 && offset + tracks.length < total,
+    partial: true,
+    total,
+  };
+}
+
+async function handleQQNewSongTracks(typeId, opts) {
+  opts = opts || {};
+  const type = parseInt(String(typeId || '').replace(QQ_NEWSONG_ID_PREFIX, ''), 10) || 5;
+  const json = await qqMusicRequest({
+    comm: qqRecommendComm(),
+    req: { module: 'newsong.NewSongServer', method: 'get_new_song_info', param: { type } },
+  }, { cookie: true, timeoutMs: 12000 });
+  const data = qqModuleData(json, 'req');
+  const all = mapQQRecommendTracks(data && data.songlist);
+  const offset = Math.max(0, parseInt(opts.offset || '0', 10) || 0);
+  const limit = Math.max(0, parseInt(opts.limit || '0', 10) || 0) || all.length;
+  const tracks = all.slice(offset, offset + limit);
+  return {
+    loggedIn: true,
+    provider: 'qq',
+    playlist: { provider: 'qq', id: QQ_NEWSONG_ID_PREFIX + type, name: '新歌首发 · ' + (data && data.lan || '最新'), cover: tracks[0] && tracks[0].cover || '', trackCount: all.length },
+    tracks,
+    offset,
+    limit,
+    nextOffset: offset + tracks.length,
+    hasMore: offset + tracks.length < all.length,
+    partial: true,
+    total: all.length,
+  };
+}
+
+async function handleQQRadioTracks(radioId, opts) {
+  opts = opts || {};
+  const id = parseInt(radioId, 10) || 0;
+  if (!id) return { provider: 'qq', error: 'MISSING_RADIO_ID', tracks: [] };
+  const want = Math.max(5, Math.min(60, parseInt(opts.num || '30', 10) || 30));
+  const cookieObj = qqCookieObject();
+  const loggedIn = !!(qqCookieUin(cookieObj) && qqCookieMusicKey(cookieObj));
+  if (id === 99 && !loggedIn) return { provider: 'qq', error: 'QQ_LOGIN_REQUIRED', message: '猜你喜欢需要登录 QQ 音乐', tracks: [] };
+  // 电台每次只下发几首，并发几批凑够一段
+  const batches = Math.max(2, Math.min(8, Math.ceil(want / 5)));
+  const payload = { comm: qqRecommendComm(cookieObj) };
+  for (let i = 0; i < batches; i += 1) {
+    payload['r' + i] = { module: 'mb_track_radio_svr', method: 'get_radio_track', param: { id, firstplay: i === 0 ? 1 : 0, num: 10 } };
+  }
+  const json = await qqMusicRequest(payload, { cookie: true, timeoutMs: 12000 });
+  const lists = [];
+  let firstError = '';
+  for (let i = 0; i < batches; i += 1) {
+    const block = json && json['r' + i];
+    if (!block || Number(block.code || 0) !== 0) { if (!firstError) firstError = String(block ? block.code : 'MISSING'); continue; }
+    lists.push(mapQQRecommendTracks(block.data && block.data.tracks, { skipTalk: true }));
+  }
+  const tracks = mergeQQTrackLists(lists).slice(0, want);
+  if (!tracks.length) {
+    const needLogin = firstError === '1000';
+    return { provider: 'qq', error: needLogin ? 'QQ_LOGIN_REQUIRED' : 'QQ_RADIO_EMPTY', message: needLogin ? '这个电台需要登录 QQ 音乐' : '电台暂时没有返回歌曲', tracks: [] };
+  }
+  return { provider: 'qq', radioId: id, tracks };
+}
+
+// ---------- 网易云：排行榜 / 推荐新歌 / 私人 FM 的各个模式 ----------
+// 网易云的每日推荐和推荐歌单原本就在 /api/discover/home 里，这里补上"发现"要的榜单、新歌，和"电台"要的 FM。
+const NETEASE_RADIO_MODES = [
+  { id: 'EXPLORE', name: '漫游 · 探索', sub: '网易云私人 FM · 专挑你平时不听的', mode: 'EXPLORE' },
+  { id: 'DEFAULT', name: '私人 FM', sub: '网易云 · 按你的口味连续推荐', mode: 'DEFAULT' },
+  { id: 'SCENE_RCMD:FOCUS', name: '专注', sub: '网易云场景电台', mode: 'SCENE_RCMD', submode: 'FOCUS' },
+  { id: 'SCENE_RCMD:EXERCISE', name: '运动', sub: '网易云场景电台', mode: 'SCENE_RCMD', submode: 'EXERCISE' },
+  { id: 'SCENE_RCMD:NIGHT_EMO', name: '深夜', sub: '网易云场景电台', mode: 'SCENE_RCMD', submode: 'NIGHT_EMO' },
+];
+const neteaseDiscoverCache = { at: 0, key: '', value: null };
+
+function neteaseCookieLooksLoggedIn() {
+  return /(?:^|;\s*)MUSIC_U=/.test(String(userCookie || ''));
+}
+
+function mapNeteaseToplist(item) {
+  item = item || {};
+  if (!item.id) return null;
+  return {
+    provider: 'netease',
+    source: 'netease',
+    listType: 'toplist',
+    id: String(item.id),
+    name: String(item.name || '网易云榜单'),
+    cover: item.coverImgUrl || item.picUrl || '',
+    trackCount: Number(item.trackCount) || 0,
+    playCount: Number(item.playCount) || 0,
+    creator: '网易云排行榜',
+    updateFrequency: String(item.updateFrequency || ''),
+  };
+}
+
+function mapNeteaseNewSong(item) {
+  item = item || {};
+  const song = item.song || item;
+  const album = Object.assign({}, song.album || song.al || {});
+  if (!album.picUrl && item.picUrl) album.picUrl = item.picUrl;
+  return mapSongRecord(Object.assign({}, song, { album, al: undefined, id: song.id || item.id, name: song.name || item.name }));
+}
+
+async function handleNeteaseDiscoverExtras(opts) {
+  opts = opts || {};
+  const loggedIn = neteaseCookieLooksLoggedIn();
+  const key = loggedIn ? crypto.createHash('sha1').update(String(userCookie)).digest('hex').slice(0, 12) : 'guest';
+  if (!opts.force && neteaseDiscoverCache.value && neteaseDiscoverCache.key === key && Date.now() - neteaseDiscoverCache.at < 20 * 60 * 1000) {
+    return neteaseDiscoverCache.value;
+  }
+  const [tl, ns] = await Promise.allSettled([
+    toplist({ cookie: userCookie, timestamp: Date.now() }),
+    personalized_newsong({ limit: 30, cookie: userCookie, timestamp: Date.now() }),
+  ]);
+  const tlBody = tl.status === 'fulfilled' && tl.value && tl.value.body || {};
+  const toplists = (Array.isArray(tlBody.list) ? tlBody.list : []).map(mapNeteaseToplist).filter(Boolean).slice(0, 6);
+  const nsBody = ns.status === 'fulfilled' && ns.value && ns.value.body || {};
+  const newSongs = (Array.isArray(nsBody.result) ? nsBody.result : []).map(mapNeteaseNewSong).filter(s => s && s.id && s.name);
+  const value = {
+    provider: 'netease',
+    loggedIn,
+    daily: { mode: '', label: '', songs: [] }, // 网易云每日推荐走原来的 /api/discover/home
+    newSongs,
+    toplists,
+    playlists: [],
+    radios: loggedIn ? NETEASE_RADIO_MODES.map(m => ({ provider: 'netease', id: m.id, name: m.name, sub: m.sub, group: m.mode === 'SCENE_RCMD' ? '场景' : '私人', personal: m.mode !== 'SCENE_RCMD' })) : [],
+    errors: {
+      toplist: tl.status === 'rejected' ? String(tl.reason && tl.reason.message || tl.reason) : undefined,
+      newsong: ns.status === 'rejected' ? String(ns.reason && ns.reason.message || ns.reason) : undefined,
+    },
+    updatedAt: Date.now(),
+  };
+  if (toplists.length || newSongs.length) {
+    neteaseDiscoverCache.at = Date.now();
+    neteaseDiscoverCache.key = key;
+    neteaseDiscoverCache.value = value;
+  }
+  return value;
+}
+
+async function handleNeteaseRadioTracks(radioId, opts) {
+  opts = opts || {};
+  if (!neteaseCookieLooksLoggedIn()) return { provider: 'netease', error: 'NETEASE_LOGIN_REQUIRED', message: '私人 FM 需要登录网易云', tracks: [] };
+  const def = NETEASE_RADIO_MODES.find(m => m.id === String(radioId || '')) || NETEASE_RADIO_MODES[0];
+  const want = Math.max(5, Math.min(40, parseInt(opts.num || '24', 10) || 24));
+  // FM 每次只给几首，并发取几轮
+  const rounds = Math.max(2, Math.min(8, Math.ceil(want / 3)));
+  const results = await Promise.allSettled(Array.from({ length: rounds }, () => (
+    def.mode === 'DEFAULT'
+      ? personal_fm({ cookie: userCookie, timestamp: Date.now() + Math.random() })
+      : personal_fm_mode({ mode: def.mode, submode: def.submode, limit: 3, cookie: userCookie, timestamp: Date.now() + Math.random() })
+  )));
+  const seen = new Set();
+  const tracks = [];
+  let firstError = '';
+  results.forEach(r => {
+    if (r.status !== 'fulfilled') { if (!firstError) firstError = String(r.reason && (r.reason.body && r.reason.body.message || r.reason.message) || 'NETEASE_FM_FAILED'); return; }
+    const body = r.value && r.value.body || {};
+    (Array.isArray(body.data) ? body.data : []).forEach(raw => {
+      const song = mapSongRecord(raw);
+      if (!song.id || !song.name || seen.has(String(song.id))) return;
+      seen.add(String(song.id));
+      tracks.push(song);
+    });
+  });
+  if (!tracks.length) return { provider: 'netease', error: firstError || 'NETEASE_FM_EMPTY', message: '网易云电台暂时没有返回歌曲', tracks: [] };
+  return { provider: 'netease', radioId: def.id, tracks: tracks.slice(0, want) };
+}
+
+// ---------- 酷狗 / 汽水：把已有的平台推荐整理成同一种格式 ----------
+async function handleKugouDiscoverBundle() {
+  const [ranks, guess] = await Promise.allSettled([
+    handleKugouRankList(),
+    handleKugouGuessLike(kugouCookie, 20),
+  ]);
+  const songs = guess.status === 'fulfilled' && guess.value && Array.isArray(guess.value.songs) ? guess.value.songs : [];
+  const toplists = ranks.status === 'fulfilled' && ranks.value ? ranks.value.toplists || [] : [];
+  return {
+    provider: 'kugou',
+    loggedIn: true,
+    daily: { mode: songs.length ? 'guess' : '', label: '酷狗 · 猜你喜欢', songs },
+    newSongs: [],
+    toplists,
+    playlists: [],
+    radios: [{ provider: 'kugou', id: 'guess', name: '酷狗猜你喜欢', sub: '酷狗私人电台 · 按你的口味推荐', group: '私人', personal: true }],
+    errors: {
+      ranks: ranks.status === 'rejected' ? String(ranks.reason && ranks.reason.message || ranks.reason) : undefined,
+      guess: guess.status === 'rejected' ? String(guess.reason && guess.reason.message || guess.reason) : (guess.value && guess.value.error) || undefined,
+    },
+    updatedAt: Date.now(),
+  };
+}
+
+async function handleQishuiDiscoverBundle() {
+  const feed = await handleQishuiFeed(18, qishuiCookie);
+  // 汽水推荐流拿不到时，接口会退回"你的喜欢 / 最近播放"——那不是发现，这里不用
+  const songs = feed && !feed.fallback && Array.isArray(feed.songs) ? feed.songs : [];
+  return {
+    provider: 'qishui',
+    loggedIn: true,
+    daily: { mode: songs.length ? 'feed' : '', label: '汽水 · 推荐流', songs },
+    newSongs: [],
+    toplists: [],
+    playlists: [],
+    radios: songs.length ? [{ provider: 'qishui', id: 'feed', name: '汽水推荐流', sub: '汽水音乐 · 一直往下刷的推荐', group: '私人', personal: true }] : [],
+    errors: { feed: feed && (feed.error || (feed.fallback ? 'FALLBACK_LIBRARY' : '')) || undefined },
+    updatedAt: Date.now(),
+  };
+}
+
+// ---------- 汇总：所有已登录平台的推荐 / 发现 / 电台 ----------
+async function handlePlatformDiscover(opts) {
+  opts = opts || {};
+  const tasks = [];
+  const qqObj = qqCookieObject();
+  if (qqCookieUin(qqObj) && qqCookieMusicKey(qqObj)) tasks.push(['qq', handleQQDiscover(opts)]);
+  if (neteaseCookieLooksLoggedIn()) tasks.push(['netease', handleNeteaseDiscoverExtras(opts)]);
+  if (kugouCookie && extractKugouAuth(kugouCookie).playbackReady) tasks.push(['kugou', handleKugouDiscoverBundle()]);
+  if (qishuiCookie && getQishuiStatus(qishuiCookie).configured) tasks.push(['qishui', handleQishuiDiscoverBundle()]);
+  const settled = await Promise.allSettled(tasks.map(t => t[1]));
+  const providers = {};
+  settled.forEach((r, i) => {
+    const name = tasks[i][0];
+    providers[name] = r.status === 'fulfilled'
+      ? r.value
+      : { provider: name, error: String(r.reason && r.reason.message || r.reason || 'DISCOVER_FAILED'), daily: { songs: [] }, newSongs: [], toplists: [], playlists: [], radios: [] };
+  });
+  return { providers, updatedAt: Date.now() };
+}
+
+async function handlePlatformRadioTracks(provider, id, num) {
+  provider = String(provider || '').toLowerCase();
+  if (provider === 'qq') return handleQQRadioTracks(id, { num });
+  if (provider === 'netease') return handleNeteaseRadioTracks(id, { num });
+  if (provider === 'kugou') {
+    if (!kugouCookie || !extractKugouAuth(kugouCookie).playbackReady) return { provider: 'kugou', error: 'KUGOU_AUTH_REQUIRED', tracks: [] };
+    return handleKugouGuessRadio(kugouCookie, num);
+  }
+  if (provider === 'qishui') {
+    const feed = await handleQishuiFeed(18, qishuiCookie);
+    const tracks = feed && !feed.fallback && Array.isArray(feed.songs) ? feed.songs : [];
+    return tracks.length ? { provider: 'qishui', tracks } : { provider: 'qishui', error: feed && feed.error || 'QISHUI_FEED_EMPTY', tracks: [] };
+  }
+  return { provider, error: 'UNSUPPORTED_PROVIDER', tracks: [] };
 }
 
 async function qqSongDetail(mid, fallback) {
@@ -5980,6 +6507,82 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       console.error('[QQAlbumDetail]', err);
       sendJSON(res, { provider: 'qq', error: err.message, album: null, songs: [] }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/discover/platforms') {
+    try {
+      sendJSON(res, await handlePlatformDiscover({ force: url.searchParams.get('force') === '1' }));
+    } catch (err) {
+      console.error('[PlatformDiscover]', err);
+      sendJSON(res, { providers: {}, error: err.message }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/radio/tracks') {
+    try {
+      const num = Math.max(5, Math.min(60, parseInt(url.searchParams.get('num') || '30', 10) || 30));
+      sendJSON(res, await handlePlatformRadioTracks(url.searchParams.get('provider') || '', url.searchParams.get('id') || '', num));
+    } catch (err) {
+      console.error('[PlatformRadioTracks]', err);
+      sendJSON(res, { error: err.message, tracks: [] }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/qq/discover') {
+    try {
+      sendJSON(res, await handleQQDiscover({ force: url.searchParams.get('force') === '1' }));
+    } catch (err) {
+      console.error('[QQDiscover]', err);
+      sendJSON(res, { provider: 'qq', error: err.message, daily: { mode: '', songs: [] }, newSongs: [], toplists: [], playlists: [], radios: [] }, 500);
+    }
+    return;
+  }
+
+  // 给"平台推荐"弹窗用：只返回 QQ 平台下发的个性化推荐歌曲
+  if (pn === '/api/qq/recommendations') {
+    try {
+      const limit = Math.max(6, Math.min(60, parseInt(url.searchParams.get('limit') || '30', 10) || 30));
+      const data = await handleQQDiscover({ force: url.searchParams.get('force') === '1' });
+      const songs = (data.daily && data.daily.songs || []).slice(0, limit);
+      const mode = data.daily && data.daily.mode || '';
+      sendJSON(res, {
+        provider: 'qq',
+        source: 'qq',
+        mode,
+        songs,
+        message: songs.length ? '' : (data.loggedIn ? 'QQ 音乐这次没有返回推荐内容，未使用你的歌单补位。' : '登录 QQ 音乐后可读取猜你喜欢与雷达推荐。'),
+        error: songs.length ? '' : (data.loggedIn ? 'QQ_RECOMMEND_EMPTY' : 'QQ_LOGIN_REQUIRED'),
+      });
+    } catch (err) {
+      console.error('[QQRecommendations]', err);
+      sendJSON(res, { provider: 'qq', error: err.message, songs: [] }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/qq/toplist/tracks') {
+    try {
+      sendJSON(res, await handleQQToplistTracks(url.searchParams.get('id') || '', {
+        limit: url.searchParams.get('limit') || '100',
+        offset: url.searchParams.get('offset') || '0',
+      }));
+    } catch (err) {
+      console.error('[QQToplistTracks]', err);
+      sendJSON(res, { provider: 'qq', error: err.message, tracks: [] }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/qq/radio/tracks') {
+    try {
+      sendJSON(res, await handleQQRadioTracks(url.searchParams.get('id') || '', { num: url.searchParams.get('num') || '30' }));
+    } catch (err) {
+      console.error('[QQRadioTracks]', err);
+      sendJSON(res, { provider: 'qq', error: err.message, tracks: [] }, 500);
     }
     return;
   }

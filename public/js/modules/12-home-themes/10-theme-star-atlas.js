@@ -415,6 +415,9 @@
     P + ' .sa-dv li .o:hover{border-color:rgba(var(--iv),.5);color:#fff}',
     P + ' .sa-dv li:hover .a,' + P + ' .sa-dv li.hl .a{color:#fff}',
     P + ' .sa-dv li.hl{background:linear-gradient(90deg,rgba(var(--iv),.05),transparent)}',
+    P + ' .sa-dv{--hp-ink:rgba(var(--iv),.86);--hp-dim:rgba(var(--iv),.36);--hp-line:rgba(var(--iv),.1);--hp-hot:rgb(var(--gold));--hp-hover:rgba(var(--iv),.05)}',
+    P + ' .sa-dv li.hp-peek{border-bottom:1px solid rgba(var(--iv),.06);letter-spacing:.06em}',
+    P + ' .sa-dv li .o.hp-open{opacity:1}',
     P + ' .sa-dv .msg{margin-top:26px;font-size:13px;letter-spacing:.16em;line-height:2;color:rgba(var(--iv),.45)}',
     P + ' .sa-dv .srch{display:flex;align-items:center;gap:12px;margin-top:26px;padding:10px 0;border-bottom:1px solid rgba(var(--iv),.3)}',
     P + ' .sa-dv .srch svg{width:18px;height:18px;stroke:rgba(var(--iv),.7);fill:none}',
@@ -1236,6 +1239,7 @@
         }
       }
       elDv.innerHTML = h;
+      if (peek) peek.restore();
       vHl = -1;
       placeViewStars();
       [].forEach.call(elNav.querySelectorAll('button[data-v]'), function (b) { b.classList.toggle('cur', b.getAttribute('data-v') === V); });
@@ -1289,6 +1293,7 @@
     function exitView(instant) {
       if (!V && !camAnim && cam.z === 1) return;
       V = null; vHl = -1;
+      if (peek) peek.close();
       root.classList.remove('sa-in-dv'); root.removeAttribute('data-sa-view'); elDv.setAttribute('aria-hidden', 'true');
       for (var i = 0; i < VMAX; i++) stars[nStatic + i] && (stars[nStatic + i].tb = 0);
       elVss.innerHTML = '';
@@ -1559,10 +1564,18 @@
     LZ.timer = setInterval(function () { if (!paused) pollLyric(); }, 100);
     on($('.sa-login'), 'click', function () { A.openLogin(); });
     on($('.sa-import'), 'click', function () { A.importLocal(); });
+    var peek = typeof homeThemePeekController === 'function' ? homeThemePeekController({
+      list: function () { return elDv.querySelector('ul'); },
+      rowSel: 'li[data-i]',
+      itemOf: function (li) { var it = vItems[Number(li.getAttribute('data-i'))]; return it && it.open ? it.raw : null; },
+      btnOf: function (li) { return li.querySelector('.o'); },
+      label: '曲目',
+    }) : null;
     on(elDv, 'click', function (e) {
       var t = e.target;
       var op = t.closest('[data-open]');
-      if (op && V && VIEWS[V].open) { e.stopPropagation(); var oi = Number(op.getAttribute('data-open')) || 0; if (vItems[oi]) VIEWS[V].open(vItems[oi], oi); return; }
+      // [二改 2026-09-28] 「曲目」在这一条下面展开，不再打开左边的歌单面板
+      if (op && V && VIEWS[V].open) { e.stopPropagation(); var oli = op.closest('li[data-i]'); if (peek && oli) peek.toggle(oli); else { var oi = Number(op.getAttribute('data-open')) || 0; if (vItems[oi]) VIEWS[V].open(vItems[oi], oi); } return; }
       var ac = t.closest('[data-a]'); if (ac) { var f = vActs[Number(ac.getAttribute('data-a'))]; if (f) f.fn(); return; }
       if (t.closest('[data-login]')) { A.openLogin(); return; }
       if (t.closest('[data-import]')) { A.importLocal(); return; }

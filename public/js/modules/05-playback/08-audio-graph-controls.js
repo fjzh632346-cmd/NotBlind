@@ -185,7 +185,7 @@ function initAudio() {
   source.connect(beatAnalyser);
   if (gainNode) {
     analyser.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
+    gainNode.connect(typeof notblindSoundFxOutput === 'function' ? notblindSoundFxOutput(audioCtx) : audioCtx.destination);
   } else if (analysisSinkNode) {
     analyser.connect(analysisSinkNode);
     analysisSinkNode.connect(audioCtx.destination);

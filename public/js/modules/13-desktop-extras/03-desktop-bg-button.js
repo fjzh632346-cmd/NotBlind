@@ -105,6 +105,13 @@
         }
       });
     }
+    // [二改][修黑屏 2] 主进程发现桌面背景黑屏、自动处理后，给一句提示
+    if (a && typeof a.onDesktopBlackNotice === 'function') {
+      a.onDesktopBlackNotice(function (payload) {
+        var msg = payload && payload.message;
+        if (msg && typeof showToast === 'function') showToast(msg);
+      });
+    }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);

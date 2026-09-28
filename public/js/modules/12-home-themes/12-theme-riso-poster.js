@@ -366,7 +366,12 @@
     '& .rp-g.heart.on path{fill:currentColor}',
     '& .rp-g.lyr{width:40px;height:40px;margin:0 6px;border:2.5px solid var(--ib);font:900 21px/1 var(--hei)}',
     '& .rp-g.lyr.on{background:var(--ib);color:var(--paper)}',
-    '& .rp-ink{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;height:52px;min-width:0;cursor:ns-resize}',
+    '& .rp-ink{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;height:52px;min-width:0;cursor:default;outline:none}',
+    // [二改 2026-09-28] 墨量能点能拖：那排墨点就是滑条（上下各放宽 18px 好点中）
+    '& .rp-ink .dots{cursor:pointer;padding:18px 5px;margin:-18px -5px;touch-action:none}',
+    '& .rp-ink.drag .dots i{transition:none}',
+    '& .rp-ink b em{min-width:2.7em;font-variant-numeric:tabular-nums}',   // 数字变宽变窄时整组别左右挪（不然拖着拖着墨点跑了）
+    '& .rp-ink:focus-visible .dots{outline:1.5px dashed var(--ia);outline-offset:-14px}',
     '& .rp-ink .dots{display:flex;align-items:center;gap:2px;height:16px}',
     '& .rp-ink .dots i{display:block;border-radius:50%;background:var(--ib);translate:var(--bx) var(--by);opacity:.35;transition:background .15s,opacity .15s}',
     '& .rp-ink .dots i.on{background:var(--ia);translate:var(--ax) var(--ay);opacity:1}',
@@ -542,9 +547,9 @@
       '<div class="rp-ctl">' +
       '<button type="button" class="rp-g prev" title="上一首">' + IC_PREV + '</button>' +
       '<button type="button" class="rp-g nxt" title="下一首">' + IC_NEXT + '</button>' +
-      '<div class="rp-ink" title="在播放器附近滚动滚轮 = 调音量（墨量）"><span class="dots"></span><b>墨量<em></em></b></div>' +
+      '<div class="rp-ink" role="slider" tabindex="0" aria-label="音量（墨量）" aria-valuemin="0" aria-valuemax="100" title="点或左右拖那排墨点调音量（墨量）；在播放器附近滚滚轮也行"><span class="dots"></span><b>墨量<em></em></b></div>' +
       '<button type="button" class="rp-g heart" title="喜欢">' + IC_HEART + '</button>' +
-      '<button type="button" class="rp-g lyr ci" title="歌词开关">词</button>' +
+      '<button type="button" class="rp-g lyr ci" title="主页歌词开关">词</button>' +
       '<button type="button" class="rp-nextq" title="接下来播放 · 打开当前队列">接下来 →<b></b></button>' +
       '</div>' +
       '<div class="rp-tearlbl">✂ 拖剪刀调进度 · 滚轮调墨量（音量）</div>' +
@@ -672,6 +677,10 @@
     root.appendChild(hintHit);
     if (RM) root.classList.add('rp-rm');
     var $ = function (s) { return root.querySelector(s); };
+    var sheet = typeof homeThemeListSheet === 'function' ? homeThemeListSheet(root.parentNode || root, {
+      variant: 'riso', ctx: ctx,
+      keepOpenFor: function (t) { return !!(t && t.closest && E && E.lineBtns && E.lineBtns.some(function (b) { return b === t || b.contains(t); })); }
+    }) : null;
     var E = {
       cv: $('.rp-gl'), stages: [].slice.call(root.querySelectorAll('.rp-stage')), speck: $('.rp-speck'),
       hint: $('.rp-hint'), dw: $('.dw'), tm: $('.tm'), datecn: $('.datecn'), hlHit: $('.hl-hit'), hlTag: $('.hl-hit .tag'), headSub: $('.head-sub'),
@@ -1187,11 +1196,12 @@
     function lineupDefs(m) {
       var n = m.now, lib = m.library || {}, daily = m.daily || {}, disc = m.discover || {}, radio = m.radio || {}, login = m.login || {};
       var recentN = (m.recent || []).length;
-      var libItem = { t: '音乐库', e: 'LIBRARY', m: lib.label || '本地音乐', tip: (lib.playlistCount ? lib.playlistCount + ' 张歌单 · ' : '') + (lib.label || ''), a: function () { call('openLibrary'); } };
+        // [二改 2026-09-28] 音乐库 / 发现 / 电台：右侧抽出节目单，「曲目」就在条目下面展开（不再跳到左边的歌单面板）
+      var libItem = { t: '音乐库', e: 'LIBRARY', m: lib.label || '本地音乐', tip: (lib.playlistCount ? lib.playlistCount + ' 张歌单 · ' : '') + (lib.label || ''), a: function () { if (sheet && login.any) sheet.open('lib'); else call('openLibrary'); } };
       var dailyItem = { t: '每日推荐', e: 'DAILY', m: daily.count ? '今日 ' + daily.count + ' 首' : (daily.label || '每日推荐'), tip: daily.label || '', a: function () { call('playDaily', 0); } };
       var recentItem = { t: '最近播放', e: 'RECENT', m: recentN ? recentN + ' 首' : '还没有记录', a: function () { call('playRecent', 0); } };
-      var discItem = { t: disc.label || '发现', e: 'DISCOVER', m: disc.sub || '', dim: disc.available === false, a: function () { call('openDiscover'); } };
-      var radioItem = { t: radio.label || '电台', e: 'RADIO', m: radio.sub || '', dim: radio.available === false, a: function () { call('openRadio'); } };
+      var discItem = { t: disc.label || '发现', e: 'DISCOVER', m: disc.sub || '', dim: disc.available === false, a: function () { if (sheet && disc.available !== false) sheet.open('find'); else call('openDiscover'); } };
+      var radioItem = { t: radio.label || '电台', e: 'RADIO', m: radio.sub || '', dim: radio.available === false, a: function () { if (sheet && radio.available !== false) sheet.open('radio'); else call('openRadio'); } };
       if (n) {
         return [
           { t: '继续播放', e: 'CONTINUE', m: (n.playing ? '正在播放 ' : '停在 ') + fmt(n.position), a: function () { call('resume'); } },
@@ -1362,7 +1372,7 @@
       E.like.classList.toggle('on', liked);
       attr(E.like, 'title', liked ? '取消喜欢' : '喜欢');
       E.lyr.classList.toggle('on', !!m.lyricsOn);
-      attr(E.lyr, 'title', m.lyricsOn ? '关闭歌词' : '打开歌词');
+      attr(E.lyr, 'title', m.lyricsOn ? '主页歌词：开（点一下只显示每日一句）' : '主页歌词：关（点一下显示此刻的歌词）');
       txt(E.nextqB, m.next ? m.next.title : (now ? '队列到头了' : '还没有节目'));
       // 喜欢 = 在封面右下角盖一枚 LOVED 心形章（切歌时不重盖，只在状态变化时）
       if (liked !== lastLiked) {
@@ -1519,6 +1529,7 @@
       dotEls.forEach(function (d, i) { d.classList.toggle('on', i < n); });
       txt(E.inkEm, hasVol ? Math.round(vol * 100) + '%' : '—');
       E.ink.classList.toggle('nov', !hasVol);
+      attr(E.ink, 'aria-valuenow', String(Math.round(vol * 100)));
     }
     function syncVolume() {
       if (performance.now() - volTouched < 1500) return;
@@ -1541,6 +1552,63 @@
       clearTimeout(volT); volT = later(function () { writeVolume(Math.round(vol * 100) / 100); }, 140);
     }
     root.addEventListener('wheel', onWheel, { passive: false });
+
+    // [二改 2026-09-28] 墨量也能点、能拖（反馈：原来只能滚轮调，点了拖了都没反应）
+    //   按在那排墨点上：按到哪就是多少，按住左右拖跟着变，边拖边改（每 60ms 写一次），松手再写一次准的；
+    //   键盘：←→ / ↑↓ 每次 5%，Home / End 到 0 / 100%。只在墨点那一小段上按才算（按到"墨量"两个字上不动，免得一下拉满）
+    var inkDrag = null, inkLastWrite = 0;
+    function volFromX(x) {
+      var r = (inkDrag && inkDrag.rect) || E.dots.getBoundingClientRect();
+      if (!r.width) return vol;
+      var pad = 5;   // .dots 左右各放宽 5px 的点击区
+      return Math.max(0, Math.min(1, (x - r.left - pad) / Math.max(1, r.width - pad * 2)));
+    }
+    function inkApply(v, final) {
+      vol = Math.max(0, Math.min(1, v));
+      volTouched = performance.now();
+      setVolUI();
+      clearTimeout(volT);
+      var now = performance.now();
+      if (final || now - inkLastWrite > 60) { inkLastWrite = now; writeVolume(Math.round(vol * 100) / 100); }
+      else volT = later(function () { inkLastWrite = performance.now(); writeVolume(Math.round(vol * 100) / 100); }, 60);
+    }
+    E.ink.addEventListener('pointerdown', function (e) {
+      if (!hasVol || e.button !== 0) return;
+      var r = E.dots.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right) return;
+      e.preventDefault(); e.stopPropagation();
+      inkDrag = { id: e.pointerId, rect: r };   // 拖动过程中按按下那一刻的位置算
+      try { E.ink.setPointerCapture(e.pointerId); } catch (_e) { }
+      E.ink.classList.add('drag');
+      E.ink.classList.remove('live'); void E.ink.offsetWidth; E.ink.classList.add('live');
+      inkApply(volFromX(e.clientX), false);
+    });
+    E.ink.addEventListener('pointermove', function (e) {
+      if (!inkDrag || e.pointerId !== inkDrag.id) return;
+      e.preventDefault();
+      inkApply(volFromX(e.clientX), false);
+    });
+    function inkEnd(e) {
+      if (!inkDrag || (e && e.pointerId !== inkDrag.id)) return;
+      inkDrag = null;
+      E.ink.classList.remove('drag');
+      try { E.ink.releasePointerCapture(e.pointerId); } catch (_e) { }
+      inkApply(vol, true);
+    }
+    E.ink.addEventListener('pointerup', inkEnd);
+    E.ink.addEventListener('pointercancel', inkEnd);
+    E.ink.addEventListener('click', function (e) { e.stopPropagation(); });
+    E.ink.addEventListener('keydown', function (e) {
+      if (!hasVol) return;
+      var k = e.key, v = null;
+      if (k === 'ArrowRight' || k === 'ArrowUp') v = vol + 0.05;
+      else if (k === 'ArrowLeft' || k === 'ArrowDown') v = vol - 0.05;
+      else if (k === 'Home') v = 0;
+      else if (k === 'End') v = 1;
+      if (v == null) return;
+      e.preventDefault(); e.stopPropagation();
+      inkApply(Math.round(v * 20) / 20, true);
+    });
 
     // 靠近播放器才浮现上一首 / 下一首 / 墨量 / 喜欢 / 歌词
     var near = false, pointerNear = false;
@@ -1762,6 +1830,7 @@
 
     return {
       update: update,
+      back: function () { return !!(sheet && sheet.close()); },
       resize: function (w, h) { if (dead) return; layout(w, h); once(); },
       pause: function () {
         if (dead || paused) return;
@@ -1782,6 +1851,7 @@
       destroy: function () {
         if (dead) return;
         dead = true; stop();
+        if (sheet) { sheet.destroy(); sheet = null; }
         if (rpTimer) clearInterval(rpTimer); rpTimer = 0;
         if (vShakeT) clearInterval(vShakeT); vShakeT = 0;
         if (speckTimer) clearTimeout(speckTimer); speckTimer = 0;

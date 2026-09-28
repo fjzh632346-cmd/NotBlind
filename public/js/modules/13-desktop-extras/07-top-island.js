@@ -160,6 +160,7 @@
     '.mri-slot .mri-lb[data-mri-act=wall][aria-pressed=true]{color:var(--mri-accent)}',
     '.mri-slot .mri-lb[aria-busy=true]{opacity:.55;pointer-events:none}',
     '.mri-slot .mri-lb.mri-upd{color:var(--mri-accent)}',
+    '.mri-slot .mri-lb.mri-fb .mri-ic{color:var(--mri-accent)}',
     '.mri-lb.mri-upd .mri-ring{width:16px;height:16px}',
     '.mri-note{padding:0 8px 0 9px;gap:11px}',
     '.mri-nic{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--mri-chip-on);color:var(--mri-ink);flex:none}',
@@ -249,7 +250,8 @@
     plus: '<path d="M12 6.5v11M6.5 12h11"/>',
     user: '<circle cx="12" cy="8.6" r="3.6"/><path d="M5.2 19.5c1.2-3.5 3.9-5.1 6.8-5.1s5.6 1.6 6.8 5.1"/>',
     warn: '<path d="M12 7.5v6"/><path d="M12 17v.01" stroke-width="2.4"/>',
-    check: '<path d="M6.5 12.5l3.5 3.5 7.5-8"/>'
+    check: '<path d="M6.5 12.5l3.5 3.5 7.5-8"/>',
+    msg: '<path d="M4.5 5.5h15v10h-8l-4.5 3.5v-3.5h-2.5z"/><path d="M8.5 9.5h7M8.5 12.2h4.5"/>'
   };
   function ic(n) { return '<svg class="mri-ic mri-ic-' + n + '" viewBox="0 0 24 24" aria-hidden="true">' + P[n] + '</svg>'; }
   function ring() { return '<svg class="mri-ring" viewBox="0 0 24 24" aria-hidden="true"><circle class="mri-rb" cx="12" cy="12" r="10"/><circle class="mri-rp" cx="12" cy="12" r="10" pathLength="100"/></svg>'; }
@@ -394,6 +396,8 @@
           '<button type="button" class="mri-lb" data-mri-act="wall" aria-pressed="false"></button>' +
           '<button type="button" class="mri-lb" data-mri-act="visual" aria-pressed="false" aria-haspopup="dialog" title="主页主题与播放页效果">' + ic('eye') + '<span>视觉</span></button>' +
           '<button type="button" class="mri-lb" data-mri-act="prefs" aria-pressed="false" aria-haspopup="dialog" title="设置（P）">' + ic('gear') + '<span>设置</span></button>' +
+          // [二改 2026-09-28] 反馈放到小岛上，和「视觉」「设置」并排，谁都能一眼看到
+          '<button type="button" class="mri-lb mri-fb' + (window.desktopWindow && typeof window.desktopWindow.feedbackSubmit === 'function' ? '' : ' mri-hid') + '" data-mri-act="feedback" aria-haspopup="dialog" title="给作者写反馈（不用登录）">' + ic('msg') + '<span>反馈</span></button>' +
           '<button type="button" class="mri-lb mri-upd mri-hid" data-mri-act="update"><span class="mri-ulic"></span><span class="mri-ul">新版本</span></button>' +
         '</div>' +
         '<div class="mri-il mri-note" role="status" aria-live="polite" inert></div>' +
@@ -575,6 +579,7 @@
       case 'wall': clickOld('desktop-bg-btn'); break;
       case 'visual': if (typeof toggleNbVisualSheet === 'function') toggleNbVisualSheet(); break;
       case 'prefs': if (typeof toggleFxPanel === 'function') toggleFxPanel(); break;
+      case 'feedback': if (typeof window.openNbFeedback === 'function') window.openNbFeedback(); break;
       case 'update': clickOld('update-entry', typeof openUpdatePanel === 'function' ? openUpdatePanel : null); break;
       case 'acct': S.card ? closeCard(false) : openCard(); break;
       case 'manage': case 'relogin': closeCard(false); openLogin(el.getAttribute('data-mri-p') || undefined); break;

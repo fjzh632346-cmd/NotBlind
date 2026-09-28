@@ -571,12 +571,22 @@ async function confirmCookieExportPrompt() {
   }
 }
 
+// [二改][登录彩蛋] 记下打开登录弹窗时已经登录了哪些平台；关弹窗时多出来的就是"刚登录成功"，第一次就播「世界和平」
+var nbLoginModalBaseline = null;
+function nbLoggedProviderSet() {
+  var out = {};
+  ['netease', 'qq', 'kugou', 'qishui'].forEach(function (p) {
+    try { if (typeof hasPlatformLogin === 'function' && hasPlatformLogin(p)) out[p] = true; } catch (_) { }
+  });
+  return out;
+}
 async function showLoginModal(opts) {
   opts = opts || {};
   loginProvider = opts.provider ? normalizeLoginProviderKey(opts.provider) : 'netease';
+  if (!nbLoginModalBaseline) nbLoginModalBaseline = nbLoggedProviderSet();
   var modal = document.getElementById('login-modal');
-  if (typeof setLoginEasterEggMode === 'function' &&
-      (!loginEasterEggState || !loginEasterEggState.ready || !loginEasterEggState.unlocked)) {
+  if (typeof setLoginEasterEggMode === 'function' && loginEasterEggState && loginEasterEggState.gateless === false &&
+      (!loginEasterEggState.ready || !loginEasterEggState.unlocked)) {
     setLoginEasterEggMode(true);
   }
   openGsapModal(modal);
@@ -596,6 +606,15 @@ function closeLoginModal() {
   stopQrPoll();
   setLoginAuthDrawerOpen(false);
   closeGsapModal(document.getElementById('login-modal'));
+  var base = nbLoginModalBaseline;
+  nbLoginModalBaseline = null;
+  if (base && typeof nbWorldPeaceAfterLogin === 'function') {
+    var now = nbLoggedProviderSet();
+    var fresh = Object.keys(now).filter(function (p) { return !base[p]; });
+    if (fresh.length) {
+      try { nbWorldPeaceAfterLogin(fresh[0]); } catch (_) { }
+    }
+  }
 }
 function setLoginProvider(provider, silent) {
   loginProvider = normalizeLoginProviderKey(provider);

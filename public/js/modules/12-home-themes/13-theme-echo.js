@@ -46,6 +46,12 @@
     '.hth-echo .ec-wd>span{display:block;white-space:nowrap}',
     // 感应范围只到字本身（左右各多留一点），不再是整行一直延伸到屏幕中间
     '.hth-echo .ec-row{pointer-events:none}',
+    // [二改][悬停防抖] 大字和它们背后的 .ec-stk 在同一个 3D 平面上，浏览器判断鼠标点中谁时两者"打平"，
+    // 在字里面也会一格一格地判成背后那层 → 字里移动时反复 进/出，光标在手形和箭头间来回闪。背后两层不接鼠标就只剩字本身
+    '.hth-echo .ec-stk3d,.hth-echo .ec-stk{pointer-events:none}',
+    // 字形本身比行高要高一截（上下各冒出十几像素），会盖到上下相邻那个字的范围里，也会互相"打平"。
+    // 让字形不接鼠标，只按每个字规整的方框（再四周放宽一点）判断
+    '.hth-echo .ec-row .ec-face{pointer-events:none}',
     '.hth-echo .ec-row .ec-wd{pointer-events:auto}',
     '.hth-echo .ec-row .ec-wd::before{content:"";position:absolute;left:-10px;right:-14px;top:-4px;bottom:-4px}',
     '.hth-echo .ec-face{color:transparent;-webkit-text-stroke:1.5px rgba(223,227,220,.36);transition:color .35s,-webkit-text-stroke-color .35s}',
@@ -162,6 +168,9 @@
     '.hth-echo .ec-dw li:hover .v{opacity:1}',
     '.hth-echo .ec-dw li .v:hover{color:var(--ink)}',
     '.hth-echo .ec-dw li:hover .t{color:var(--hot)}',
+    '.hth-echo .ec-dw{--hp-ink:var(--ink);--hp-dim:var(--ink3);--hp-line:rgba(223,227,220,.1);--hp-hot:var(--hot);--hp-hover:rgba(223,227,220,.05)}',
+    '.hth-echo .ec-dw li.hp-peek{border-bottom:1px solid rgba(223,227,220,.08)}',
+    '.hth-echo .ec-dw li .v.hp-open{opacity:1}',
     '.hth-echo .ec-dw-foot{margin-top:16px;display:flex;gap:10px}',
     '.hth-echo .ec-dw-foot button,.hth-echo .ec-dw-empty button{font-size:12px;color:var(--ink2);padding:6px 12px;border-radius:999px;border:1px solid var(--ink4)!important;transition:color .2s,border-color .2s}',
     '.hth-echo .ec-dw-foot button:hover,.hth-echo .ec-dw-empty button:hover{color:var(--ink);border-color:var(--hot)!important}',
@@ -185,7 +194,9 @@
     { k: 'daily', w: '推荐' }, { k: 'lib', w: '曲库' }, { k: 'find', w: '发现' },
     { k: 'radio', w: '电台' }, { k: 'recent', w: '最近' }, { k: 'search', w: '搜索' }
   ];
-  var NE = 5;
+  // [二改][重影减层] 悬停回声原来 5 层，叠在一起偏密；减到 3 层、层距略拉开（见 frameRows 的 gap），更耐看
+  var NE = 3;
+  var HOVER_GRACE = 180;   // [二改][悬停防抖] 离开大字后留 0.18 秒缓冲，期间回到同一个字不算离开
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
   function eOut3(t) { t = clamp(t, 0, 1); return 1 - Math.pow(1 - t, 3); }
@@ -379,12 +390,46 @@
       row.innerHTML = '<span class="ec-idx">' + String(i + 1).padStart(2, '0') + '</span><div class="ec-wd"><span class="ec-face">' + e.w + '</span>' + echoes + '</div><span class="ec-meta"><b>→</b><span></span></span>';
       stk.appendChild(row);
       var R = { el: row, e: e, on: 0, k: 0, vis: false, echoes: row.querySelectorAll('.ec-echo'), meta: row.querySelector('.ec-meta span'), typing: false };
-      on(row, 'pointerenter', function () { R.on = 1; row.classList.add('on'); stk.classList.add('dim'); kick(); });
-      on(row, 'pointerleave', function () { if (R.typing) return; R.on = 0; row.classList.remove('on'); if (!rows.some(function (x) { return x.on; })) stk.classList.remove('dim'); kick(); });
+      on(row, 'pointerenter', function () { rowEnter(R); });
+      on(row, 'pointerleave', function () { if (R.typing) return; rowLeave(R); });
       on(row, 'click', function () { if (e.k === 'search') startSearch(R); else openDrawer(e.k); });
       on(row, 'keydown', function (ev) { if (ev.target === row && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); ev.stopPropagation(); row.click(); } });
       return R;
     });
+
+    // [二改][悬停防抖] 整组大字会跟着鼠标微微倾斜。原来倾斜一动，字就在鼠标底下挪位置，
+    // 鼠标停在字边上也会反复 进 / 出：光标在手形和箭头之间来回跳（看着像鼠标在抖），回声一遍遍重新拉出。
+    // 现在：① 悬停在任一个字上时，整组停止跟随倾斜（frameRows 里），字不再自己挪；
+    //      ② 离开后留一小段缓冲再收回回声，缓冲期内回到同一个字就接着显示，不重来；
+    //      ③ 移到另一个字上时，上一个字立刻收回（不会两个字同时亮）。
+    //      ④ 鼠标在左边大字这一栏（含四周约 60px 留白）里时倾斜也停住：离开一个字后整组不会马上转回去，
+    //         把字"转"回到鼠标底下又触发一次。倾斜只在鼠标去了页面其它地方时才跟着动。
+    var inCol = false, colBox = null;
+    function colHit(x, y) {
+      if (!colBox) {
+        var fs = parseFloat(stk.style.getPropertyValue('--fs')) || 80;
+        var sr = stk3d.getBoundingClientRect(), rr = root.getBoundingClientRect(), l = sr.left - rr.left;
+        colBox = { r: l + 42 + fs * 2.6 + 60, t: sr.top - rr.top - 30, b: sr.bottom - rr.top + 30 };
+      }
+      return x <= colBox.r && y >= colBox.t && y <= colBox.b;
+    }
+    function rowEnter(R) {
+      if (R.offTimer) { clearTimeout(R.offTimer); R.offTimer = 0; }
+      rows.forEach(function (o) { if (o !== R && o.on && !o.typing) rowOff(o); });
+      if (R.on) return;
+      R.on = 1; R.el.classList.add('on'); stk.classList.add('dim'); kick();
+    }
+    function rowLeave(R) {
+      if (R.offTimer) clearTimeout(R.offTimer);
+      R.offTimer = setTimeout(function () { R.offTimer = 0; if (!R.typing) rowOff(R); }, HOVER_GRACE);
+    }
+    function rowOff(R) {
+      if (R.offTimer) { clearTimeout(R.offTimer); R.offTimer = 0; }
+      if (!R.on) return;
+      R.on = 0; R.el.classList.remove('on');
+      if (!rows.some(function (x) { return x.on; })) stk.classList.remove('dim');
+      kick();
+    }
 
     function startSearch(R) {
       if (R.typing) return; R.typing = true;
@@ -454,6 +499,7 @@
       dw.querySelector('h2').textContent = d.t;
       dw.querySelector('.ec-dw-meta').textContent = d.meta;
       var ol = dw.querySelector('ol');
+      if (peek) peek.close();
       ol.innerHTML = d.empty ? '' : d.html;
       ol.scrollTop = 0;
       var foot = dw.querySelector('.ec-dw-foot'); foot.innerHTML = '';
@@ -467,14 +513,28 @@
       d.foot.forEach(function (f) { var b = document.createElement('button'); b.textContent = f[0]; b.onclick = f[1]; foot.appendChild(b); });
       dw.classList.add('on'); dw.setAttribute('aria-hidden', 'false'); root.classList.add('dw-open');
     }
-    function closeDrawer() { if (!dwKey) return false; dwKey = ''; dw.classList.remove('on'); dw.setAttribute('aria-hidden', 'true'); root.classList.remove('dw-open'); return true; }
+    function closeDrawer() { if (!dwKey) return false; if (peek) peek.close(); dwKey = ''; dw.classList.remove('on'); dw.setAttribute('aria-hidden', 'true'); root.classList.remove('dw-open'); return true; }
+    // [二改 2026-09-28] 「看曲目」在这一条下面展开，不再打开左边的歌单面板
+    function drawerItemOf(li) {
+      var m = M || ctx.model();
+      var i = +li.dataset.i, act = li.dataset.act;
+      var list = act === 'lib' ? m.library.items : act === 'find' ? m.discover.items : null;
+      return list && list[i] || null;
+    }
+    var peek = typeof homeThemePeekController === 'function' ? homeThemePeekController({
+      list: dw.querySelector('ol'),
+      rowSel: 'li[data-i]',
+      itemOf: drawerItemOf,
+      btnOf: function (li) { return li.querySelector('.v'); },
+      label: '看曲目',
+    }) : null;
     on(dw.querySelector('.ec-dw-x'), 'click', closeDrawer);
     on(dw.querySelector('ol'), 'click', function (ev) {
       var m = M || ctx.model();
       var v = ev.target.closest('[data-view]');
       var li = ev.target.closest('li'); if (!li) return;
       var i = +li.dataset.i, act = li.dataset.act;
-      if (v) { var list = act === 'lib' ? m.library.items : m.discover.items; if (list && list[i]) A.openPlaylist(list[i]); return; }
+      if (v) { ev.stopPropagation(); if (peek) peek.toggle(li); else { var list = act === 'lib' ? m.library.items : m.discover.items; if (list && list[i]) A.openPlaylist(list[i]); } return; }
       if (act === 'daily') A.playDaily(i);
       else if (act === 'recent') A.playRecent(i);
       else if (act === 'lib' && m.library.items[i]) A.playPlaylist(m.library.items[i]);
@@ -554,6 +614,7 @@
     on(root, 'pointermove', function (ev) {
       var r = root.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
       mx = x / W; my = y / H;
+      inCol = colHit(x, y);
       var t = (performance.now() - t0) / 1000;
       // 鼠标划过地平线：拨一下（和开场一样的手感）
       var u = uAt(x);
@@ -576,7 +637,7 @@
       ring.style.cursor = (ringHover != null || volHover != null) ? 'grab' : (p.d < R ? 'pointer' : '');
       kick();
     });
-    on(root, 'pointerleave', function () { if (ringHover != null || volHover != null) { ringHover = null; volHover = null; ptrDirty = true; kick(); } });
+    on(root, 'pointerleave', function () { inCol = false; kick(); if (ringHover != null || volHover != null) { ringHover = null; volHover = null; ptrDirty = true; kick(); } });
 
     // ---------- 布局 ----------
     function layout() {
@@ -595,6 +656,7 @@
       var sr = stk3d.getBoundingClientRect(), rr = root.getBoundingClientRect();
       var rh = sr.height / ENT.length, fs = Math.min(rh * .84, sr.width * .2);
       stk.style.setProperty('--rh', rh + 'px'); stk.style.setProperty('--fs', fs + 'px');
+      colBox = null;
       stk3d.style.perspectiveOrigin = (cx - (sr.left - rr.left)) + 'px ' + (cy - (sr.top - rr.top)) + 'px';
       ring.style.left = (cx - R - 20) + 'px'; ring.style.top = (cy - R - 20) + 'px';
       ring.style.width = ring.style.height = (2 * R + 40) + 'px';
@@ -681,7 +743,7 @@
       // 抽屉开着时，数据变了也跟着刷新（只在列表内容变化时）
       if (dwKey) {
         var d = drawerData(dwKey), ol = dw.querySelector('ol');
-        if (d && cache.dw !== dwKey + d.html) { cache.dw = dwKey + d.html; var s = ol.scrollTop; ol.innerHTML = d.empty ? '' : d.html; ol.scrollTop = s; }
+        if (d && cache.dw !== dwKey + d.html) { cache.dw = dwKey + d.html; var s = ol.scrollTop; ol.innerHTML = d.empty ? '' : d.html; if (peek) peek.restore(); ol.scrollTop = s; }
       }
       if (cache.lay !== (n ? 1 : 0) + '|' + W + 'x' + H) { cache.lay = (n ? 1 : 0) + '|' + W + 'x' + H; layout(); }
       kick();
@@ -771,11 +833,13 @@
       } else tip.classList.remove('on');
     }
     function frameRows(dt) {
-      smx += (mx - smx) * Math.min(1, dt * 3.2); smy += (my - smy) * Math.min(1, dt * 3.2);
+      // [二改][悬停防抖] 鼠标在大字这一栏里、或有字处于悬停状态时，整组倾斜停住，字不在鼠标底下挪
+      var holdTilt = inCol || rows.some(function (R) { return R.on; });
+      if (!holdTilt) { smx += (mx - smx) * Math.min(1, dt * 3.2); smy += (my - smy) * Math.min(1, dt * 3.2); }
       var tf = 'rotateY(' + (9 + (smx - .5) * 7).toFixed(2) + 'deg) rotateX(' + ((.5 - smy) * 5).toFixed(2) + 'deg)';
       if (tf !== lastStkTf) { lastStkTf = tf; stk.style.transform = tf; }
-      var busy = Math.abs(mx - smx) > .002 || Math.abs(my - smy) > .002;
-      var gap = 64;   // 回声间距固定，不跟节拍跳
+      var busy = !holdTilt && (Math.abs(mx - smx) > .002 || Math.abs(my - smy) > .002);
+      var gap = 84;   // 回声间距固定，不跟节拍跳（[二改][重影减层] 层数减到 3，层距 64 → 84，层与层之间更疏、不再缠成一团）
       rows.forEach(function (R) {
         R.k += (R.on - R.k) * Math.min(1, dt * (R.on ? 6 : 4.5));
         if (Math.abs(R.on - R.k) > .003) busy = true;
@@ -861,6 +925,7 @@
       },
       destroy: function () {
         stop();
+        rows.forEach(function (R) { if (R.offTimer) { clearTimeout(R.offTimer); R.offTimer = 0; } });
         releaseCanvas();
         listeners.forEach(function (l) { l[0].removeEventListener(l[1], l[2], l[3]); });
         listeners = [];

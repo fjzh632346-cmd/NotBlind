@@ -205,18 +205,26 @@ function nbOpenThemeSearchOverlay() {
   else if (!veil.parentNode) document.body.appendChild(veil);
   document.body.classList.add('nb-theme-searching');
   // 点了结果里的歌之后，原来的逻辑会清空结果；这时（输入框也不在打字）顺手把浮层收起，回到主题
+  // [二改 2026-09-28] 只在"刚点了一首歌"之后才收（反馈 205141：换搜索源时结果会先清空、焦点在源按钮上，
+  // 原来的判断把它当成"点了歌"，整个搜索就被关掉了）。点歌 = playSearchResult 被调用（结果行、播客节目、回车播第一首）
   var area = document.getElementById('search-area');
+  if (typeof playSearchResult === 'function' && !playSearchResult.__nbPick) {
+    var nbOrigPlaySearchResult = playSearchResult;
+    playSearchResult = function () { nbThemeSearchPickAt = Date.now(); return nbOrigPlaySearchResult.apply(this, arguments); };
+    playSearchResult.__nbPick = true;
+  }
   if (area && !area.__nbThemeSearchWatch) {
     area.__nbThemeSearchWatch = true;
     new MutationObserver(function () {
       if (!document.body.classList.contains('nb-theme-searching')) return;
       if (area.classList.contains('has-results')) return;
       setTimeout(function () {
-        if (!area.classList.contains('has-results') && document.activeElement !== $input) nbCloseThemeSearchOverlay();
+        if (!area.classList.contains('has-results') && document.activeElement !== $input && Date.now() - nbThemeSearchPickAt < 4000) nbCloseThemeSearchOverlay();
       }, 120);
     }).observe(area, { attributes: true, attributeFilter: ['class'] });
   }
 }
+var nbThemeSearchPickAt = 0;
 function nbCloseThemeSearchOverlay() {
   if (!document.body.classList.contains('nb-theme-searching')) return;
   document.body.classList.remove('nb-theme-searching');
@@ -445,7 +453,10 @@ function isHomeBlankDismissClick(e) {
     '.modal',
     '.track-detail-modal',
     '.cover-color-pop',
-    '.color-lab-pop'
+    '.color-lab-pop',
+    // [二改][登录彩蛋] 登录成功后的「世界和平」动画：点它是收起动画，不是点主页空白
+    '#login-easter-unlock-cinematic',
+    '#login-easter-achievement'
   ].join(',');
   if (target.closest(blockedSelector)) return false;
   var x = e.clientX;

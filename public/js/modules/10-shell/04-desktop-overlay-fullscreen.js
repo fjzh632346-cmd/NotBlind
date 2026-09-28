@@ -400,7 +400,7 @@ function consumeDesktopModeControlEvent(event) {
 function setDesktopIconsVisibility(desired, event, options) {
   // [二改] options.quiet：自动显示/隐藏图标时不弹提示
   var quiet = !!(options && options.quiet);
-  if (event && typeof desktopIconAutoNoteManual === 'function') desktopIconAutoNoteManual();
+  if (event && typeof desktopIconAutoNoteManual === 'function') desktopIconAutoNoteManual(desired !== false);
   consumeDesktopModeControlEvent(event);
   var api = getDesktopWindowApi();
   var mode = desktopIconShieldModeState();

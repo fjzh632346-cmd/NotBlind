@@ -161,6 +161,8 @@
     });
     // 全局：软件在后台（或当桌面背景）也能用
     html += '<div class="nbq-sh nbk-sh"><span class="nbq-no">0' + (SK_GROUPS.length + 1) + '</span><b>全局 · 软件在后台也能用</b><i class="nbq-rule"></i></div>';
+    // [二改][全局快捷键] 说明为什么默认只开媒体键
+    html += '<p class="nbk-intro nbk-gnote">默认只开了键盘上的媒体键。全局快捷键在别的软件里按也会被 Not Blind 拿走（那个软件就收不到了），需要时再录。</p>';
     (typeof HOTKEY_ACTIONS !== 'undefined' ? HOTKEY_ACTIONS : []).forEach(function (a) {
       var b = binding('global', a.key);
       var isCap = cap && cap.scope === 'global' && cap.action === a.key;
@@ -302,7 +304,7 @@
     { w: '播放页', en: 'STAGE', target: 'stage', title: '播放页：歌词是主角', body: '点正在播放的歌名进来。滚轮拉远拉近，双击镜头回正，按 I 进沉浸模式（界面全部收起），Shift + R 自由转镜头。在 3D 画面上右键会摊开唱片架；其它地方右键都是「退回上一步」。' },
     { w: '视觉', en: 'VISUAL', selector: '#nb-visual-btn', title: '「视觉」：换主页、换播放页', body: '主页主题和播放页效果都在这里，点一下就换。播放页效果分两类：3D 舞台（粒子和立体歌词）和平面歌词（整屏一张会动的歌词画面）。桌面歌词、「进播放页直接沉浸」也在这里开。' },
     { w: '桌面', en: 'DESKTOP', selector: '#desktop-bg-btn', title: '把它铺成桌面背景', body: '点小岛上的「桌面背景」，Not Blind 会一块块拼成你的桌面壁纸，照常放歌。鼠标移到屏幕最上面会滑出播放器，在那里往上滚一下出搜索；按 Esc 或点「回到窗口」就回来。' },
-    { w: '设置', en: 'SETTINGS', selector: '#nb-settings-btn', title: '「设置」：细节都在这里', body: '颜色、歌词、动效、歌单架、性能都能细调，顶部可以直接搜功能。遇到问题或有想法，点设置右上角的「反馈」，不用任何账号就能发给作者。想再看这份引导：设置 › 常用 › 使用引导。' },
+    { w: '设置', en: 'SETTINGS', selector: '#nb-settings-btn', title: '「设置」：细节都在这里', body: '颜色、歌词、动效、歌单架、性能都能细调，顶部可以直接搜功能。遇到问题或有想法，点右上角小岛上的「反馈」（设置面板顶上也有），不用任何账号就能发给作者。想再看这份引导：设置 › 常用 › 使用引导。' },
     { w: '键盘', en: 'KEYS', keys: true, title: '键盘小抄', body: '' }
   ];
   // 从 Mineradio 升级上来的人（看过旧引导，或者一打开就已经登录着）：欢迎页先说一句改名

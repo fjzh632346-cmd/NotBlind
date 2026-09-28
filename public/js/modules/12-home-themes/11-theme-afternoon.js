@@ -501,6 +501,11 @@
       '</div>';
     var K = root.querySelector('.ha');
     var q$ = function (s) { return K.querySelector(s); };
+    // [二改 2026-09-28] 音乐库 / 发现 / 电台：在右侧抽出一张卡纸列出来，「曲目」就在条目下面展开（不再跳到左边的歌单面板）
+    var sheet = typeof homeThemeListSheet === 'function' ? homeThemeListSheet(root.parentNode || root, {
+      variant: 'afternoon', ctx: ctx,
+      keepOpenFor: function (t) { return t && t.closest && t.closest('.ha-lbl'); }
+    }) : null;
     var cv = q$('.ha-wall'), E = {
       clk: q$('.ha-clock .t'), date: q$('.ha-clock .d'), shint: q$('.ha-shint'), pl: q$('.ha-pl'), st: q$('.ha-st'), ttl: q$('.ha-ttl'), meta: q$('.ha-meta'),
       thr: q$('.ha-thr'), ths: q$('.ha-thr .ths'), bub: q$('.ha-thr .bub'), tm: q$('.ha-thr .tm'), ctrl: q$('.ha-ctrl'),
@@ -937,11 +942,11 @@
       pollLyric();
       // 展签
       var L = [
-        { k: '壹', t: '音乐库', s: M.login.any ? (M.library.playlistCount + ' 个歌单 · ' + M.library.label) : '本地音乐 · 点此导入', f: function () { M.login.any ? call('openLibrary') : call('importLocal'); }, on: true },
+        { k: '壹', t: '音乐库', s: M.login.any ? (M.library.playlistCount + ' 个歌单 · ' + M.library.label) : '本地音乐 · 点此导入', f: function () { if (!M.login.any) call('importLocal'); else if (sheet) sheet.open('lib'); else call('openLibrary'); }, on: true },
         { k: '贰', t: '每日推荐', s: M.daily.count ? ('今日 ' + M.daily.count + ' 首 · ' + M.daily.label) : M.daily.label, f: function () { M.daily.count ? call('playDaily', 0) : call('openLogin'); }, on: !!M.daily.count },
         { k: '叁', t: '最近播放', s: M.recent.length ? (M.recent.length + ' 首 · 所有平台') : '还没有记录', f: function () { M.recent.length ? call('playRecent', 0) : call('openLibrary'); }, on: !!M.recent.length },
-        { k: '肆', t: '发现', s: M.discover.sub, f: function () { M.discover.available ? call('openDiscover') : call('openLogin'); }, on: !!M.discover.available },
-        { k: '伍', t: '电台', s: M.radio.sub, f: function () { M.radio.available ? call('openRadio') : call('openLogin'); }, on: !!M.radio.available }
+        { k: '肆', t: '发现', s: M.discover.sub, f: function () { if (!M.discover.available) call('openLogin'); else if (sheet) sheet.open('find'); else call('openDiscover'); }, on: !!M.discover.available },
+        { k: '伍', t: '电台', s: M.radio.sub, f: function () { if (!M.radio.available) call('openLogin'); else if (sheet) sheet.open('radio'); else call('openRadio'); }, on: !!M.radio.available }
       ];
       var lb = E.labels; lb.innerHTML = '';
       L.forEach(function (l) {
@@ -1238,7 +1243,7 @@
         if (Math.round(rr.width) !== W || Math.round(rr.height) !== H || rr.left !== ox || rr.top !== oy) layout();
         wake(); later(arm, 60);
       },
-      back: function () { if (searching) { closeSearch(); return true; } return false; },
+      back: function () { if (sheet && sheet.close()) return true; if (searching) { closeSearch(); return true; } return false; },
       destroy: function () {
         if (destroyed) return;
         destroyed = true; running = false;
@@ -1247,6 +1252,7 @@
         clearTimeout(vT); clearTimeout(nearT);
         if (document.activeElement === qin) qin.blur();
         cleanups.forEach(function (fn) { try { fn(); } catch (_e) { } }); cleanups = [];
+        if (sheet) { sheet.destroy(); sheet = null; }
         releaseGL(true);
         try { cv.width = cv.height = 1; inkCv.width = inkCv.height = 1; } catch (_e) { }
         root.innerHTML = '';

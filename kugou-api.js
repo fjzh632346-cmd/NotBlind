@@ -1802,6 +1802,8 @@ async function handleKugouUserPlaylists(cookie) {
 }
 
 async function handleKugouPlaylistTracks(playlistId, cookie, opts = {}) {
+  // 排行榜以"虚拟歌单"出现在发现页，复用歌单详情 / 分页 / 队列；公开接口，不需要登录
+  if (String(playlistId || '').indexOf(KUGOU_RANK_ID_PREFIX) === 0) return handleKugouRankTracks(playlistId, opts);
   const auth = extractKugouAuth(cookie);
   if (!auth.playbackReady) {
     return { provider: 'kugou', tracks: [], total: 0, error: 'KUGOU_AUTH_REQUIRED', message: '酷狗登录未完成' };
@@ -2224,11 +2226,126 @@ async function handleKugouGuessLike(cookie, limit) {
   return { provider: 'kugou', loggedIn: true, songs: [], error: 'KUGOU_GUESS_EMPTY', updatedAt: Date.now() };
 }
 
+
+// ---------- 发现 / 电台：酷狗排行榜（公开接口）+ 猜你喜欢电台 ----------
+const KUGOU_RANK_CDN = 'http://mobilecdnbj.kugou.com/api/v3/rank';
+const KUGOU_RANK_ID_PREFIX = 'rank_';
+const KUGOU_DISCOVER_RANK_PICK = [/飙升/, /新歌/, /TOP500/i, /网络热歌/, /抖音|短视频/];
+const kugouRankListCache = { at: 0, value: null };
+
+function mapKugouRankSummary(item) {
+  item = item || {};
+  const id = Number(item.rankid || item.id || 0);
+  if (!id) return null;
+  return {
+    provider: 'kugou',
+    source: 'kugou',
+    listType: 'toplist',
+    id: KUGOU_RANK_ID_PREFIX + id,
+    rankId: id,
+    name: stripKugouHtml(item.rankname || '酷狗榜单'),
+    cover: kugouCoverUrl(item.imgurl || item.banner7url || item.img_9 || '', 240),
+    trackCount: 0,
+    playCount: Number(item.play_times) || 0,
+    creator: '酷狗排行榜',
+    updateFrequency: String(item.update_frequency || ''),
+  };
+}
+
+function mapKugouRankSong(item) {
+  item = item || {};
+  const authors = Array.isArray(item.authors) ? item.authors.map(a => (a && (a.author_name || a.name)) || a).filter(v => typeof v === 'string' && v) : [];
+  const artistLabel = authors.join('、') || String(item.filename || '').split(' - ')[0] || '';
+  return mapKugouPlaylistTrack(Object.assign({}, item, {
+    name: item.songname || stripKugouFileName(item.filename, artistLabel),
+    SingerName: artistLabel,
+    album_audio_id: item.album_audio_id,
+    album_id: item.album_id,
+    duration: item.duration,
+    privilege: item.privilege,
+  }));
+}
+
+async function handleKugouRankList() {
+  if (kugouRankListCache.value && Date.now() - kugouRankListCache.at < 30 * 60 * 1000) return kugouRankListCache.value;
+  const json = await requestJson(KUGOU_RANK_CDN + '/list?version=9108&plat=0&showtype=2&parentid=0&apiver=6&area_code=1&withsong=0', {
+    headers: { 'User-Agent': KUGOU_H5_UA },
+    timeoutMs: 9000,
+  });
+  const rows = json && json.data && Array.isArray(json.data.info) ? json.data.info : [];
+  const all = rows.map(mapKugouRankSummary).filter(Boolean);
+  const picked = [];
+  KUGOU_DISCOVER_RANK_PICK.forEach(re => {
+    const hit = all.find(r => re.test(r.name) && picked.indexOf(r) < 0);
+    if (hit) picked.push(hit);
+  });
+  all.forEach(r => { if (picked.length < 8 && picked.indexOf(r) < 0) picked.push(r); });
+  const value = { provider: 'kugou', toplists: picked, all };
+  if (all.length) { kugouRankListCache.at = Date.now(); kugouRankListCache.value = value; }
+  return value;
+}
+
+async function handleKugouRankTracks(rankId, opts = {}) {
+  const id = parseInt(String(rankId || '').replace(KUGOU_RANK_ID_PREFIX, ''), 10) || 0;
+  if (!id) return { provider: 'kugou', tracks: [], total: 0, error: 'MISSING_RANK_ID' };
+  const limit = Math.max(1, Math.min(100, Number(opts.limit) || 100));
+  const offset = Math.max(0, Number(opts.offset) || 0);
+  const page = Math.floor(offset / limit) + 1;
+  const json = await requestJson(KUGOU_RANK_CDN + '/song?version=9108&ranktype=0&plat=0&area_code=1&with_res_tag=0&pagesize=' + limit + '&page=' + page + '&rankid=' + id, {
+    headers: { 'User-Agent': KUGOU_H5_UA },
+    timeoutMs: 10000,
+  });
+  const data = json && json.data || {};
+  const tracks = (Array.isArray(data.info) ? data.info : []).map(mapKugouRankSong).filter(s => s.name && (s.hash || s.id));
+  const total = Number(data.total) || (offset + tracks.length);
+  let name = '酷狗榜单';
+  const cached = kugouRankListCache.value && kugouRankListCache.value.all.find(r => r.rankId === id);
+  if (cached) name = cached.name;
+  return {
+    provider: 'kugou',
+    playlist: { provider: 'kugou', id: KUGOU_RANK_ID_PREFIX + id, name, cover: cached && cached.cover || (tracks[0] && tracks[0].cover) || '', trackCount: total },
+    tracks,
+    total,
+    offset,
+    limit,
+    nextOffset: offset + tracks.length,
+    hasMore: tracks.length > 0 && offset + tracks.length < total,
+    partial: true,
+  };
+}
+
+// 猜你喜欢是个随机流：并发取几批，去重后凑成一段电台
+async function handleKugouGuessRadio(cookie, num) {
+  const want = Math.max(5, Math.min(60, Number(num) || 30));
+  const batches = Math.max(1, Math.min(4, Math.ceil(want / 20)));
+  const results = await Promise.allSettled(Array.from({ length: batches }, () => handleKugouGuessLike(cookie, 20)));
+  const seen = new Set();
+  const tracks = [];
+  let firstError = '';
+  results.forEach(r => {
+    if (r.status !== 'fulfilled') { if (!firstError) firstError = r.reason && r.reason.message || 'KUGOU_GUESS_FAILED'; return; }
+    if (r.value && r.value.error && !firstError) firstError = r.value.error;
+    (r.value && r.value.songs || []).forEach(song => {
+      const key = String(song.hash || song.id || '');
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      tracks.push(song);
+    });
+  });
+  return tracks.length
+    ? { provider: 'kugou', tracks: tracks.slice(0, want) }
+    : { provider: 'kugou', tracks: [], error: firstError || 'KUGOU_GUESS_EMPTY' };
+}
+
 module.exports = {
   handleKugouSearch,
   handleKugouSongUrl,
   handleKugouLyric,
   handleKugouGuessLike,
+  handleKugouGuessRadio,
+  handleKugouRankList,
+  handleKugouRankTracks,
+  KUGOU_RANK_ID_PREFIX,
   handleKugouUserPlaylists,
   handleKugouPlaylistTracks,
   handleKugouLikeCheck,

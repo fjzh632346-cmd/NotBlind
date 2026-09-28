@@ -65,6 +65,7 @@
     'js/modules/05-playback/06-track-detail-lyrics-actions.js',
     'js/modules/05-playback/07-search.js',
     'js/modules/05-playback/08-audio-graph-controls.js',
+    'js/modules/05-playback/08a-sound-fx.js',
     'js/modules/05-playback/09-queue-snapshot-autoplay.js',
     'js/modules/05-playback/10-queue-actions.js',
     'js/modules/05-playback/11-provider-fallback.js',
@@ -115,6 +116,7 @@
     'js/modules/12-home-themes/01-theme-host.js',
     'js/modules/12-home-themes/02-panel-skins.js',
     'js/modules/12-home-themes/03-home-lyric.js',
+    'js/modules/12-home-themes/04-home-track-peek.js',
     'js/modules/12-home-themes/10-theme-star-atlas.js',
     'js/modules/12-home-themes/11-theme-afternoon.js',
     'js/modules/12-home-themes/12-theme-riso-poster.js',
@@ -136,6 +138,8 @@
     'js/modules/13-desktop-extras/20-feedback.js',
     'js/modules/13-desktop-extras/09-shortcuts-guide.js',
     'js/modules/13-desktop-extras/21-flat-shelf.js',
+    'js/modules/13-desktop-extras/22-onboarding.js',
+    'js/modules/13-desktop-extras/23-newbie-tips-extra.js',
   ];
 
   function readModule(path) {

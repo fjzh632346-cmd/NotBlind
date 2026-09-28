@@ -9,8 +9,9 @@
   if (!api || typeof api.feedbackSubmit !== 'function') return;   // 浏览器里打开时没有这个功能
 
   var CSS = [
-    '#nb-fb-mask{position:fixed;inset:0;z-index:9000;background:rgba(8,7,7,.55);display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .2s ease;-webkit-app-region:no-drag}',
-    '#nb-fb-mask.on{opacity:1;pointer-events:auto}',
+    '#nb-fb-mask{position:fixed;inset:0;z-index:9000;background:rgba(8,7,7,.55);display:grid;place-items:center;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .2s ease,visibility 0s linear .2s;-webkit-app-region:no-drag}',
+    // [二改][窗口拖动] 只靠透明度藏起来时，这层铺满全窗口的"不可拖动区"还在，打开过一次反馈后标题栏就拖不动窗口了；藏起时连 visibility 一起藏
+    '#nb-fb-mask.on{opacity:1;visibility:visible;pointer-events:auto;transition:opacity .2s ease,visibility 0s}',
     '#nb-fb{width:min(540px,calc(100vw - 48px));max-height:calc(100vh - 80px);overflow:auto;box-sizing:border-box;padding:26px 28px 22px;background:#171514;color:#dfe3dc;border:1px solid rgba(223,227,220,.14);border-radius:14px;box-shadow:0 30px 80px rgba(0,0,0,.55);font:13px/1.6 "Microsoft YaHei UI","Microsoft YaHei",sans-serif;transform:translateY(10px) scale(.985);transition:transform .32s cubic-bezier(.2,1.1,.3,1)}',
     '#nb-fb-mask.on #nb-fb{transform:none}',
     '#nb-fb *{box-sizing:border-box}',
@@ -43,8 +44,13 @@
     '#nb-fb .btn.go{background:#ff4a1c;border-color:#ff4a1c;color:#fff}',
     '#nb-fb .btn.go:hover{background:#ff5f36}',
     '#nb-fb .btn[disabled]{opacity:.45;pointer-events:none}',
-    // 设置面板顶上的入口
-    '#nb-fb-entry{margin-left:6px}'
+    '#nb-fb .note{display:none;margin:-6px 0 14px;padding-left:10px;border-left:2px solid #ff4a1c;color:rgba(223,227,220,.8);font-size:12.5px}',
+    '#nb-fb .note.on{display:block}',
+    // 设置面板顶上的入口：用强调色，一眼能看到（盖过设置面板对 .fx-mini-btn 的统一样式）
+    '#nb-fb-entry{margin-left:6px;display:inline-flex;align-items:center;gap:5px}',
+    '#nb-fb-entry svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}',
+    'html body #fx-panel.nb-settings .fx-head-actions #nb-fb-entry{display:inline-flex!important;align-items:center;gap:5px;border-color:var(--e-hot,#ff4a1c)!important;color:var(--e-hot,#ff4a1c)!important}',
+    'html body #fx-panel.nb-settings .fx-head-actions #nb-fb-entry:hover{background:var(--e-hot,#ff4a1c)!important;color:#fff!important}'
   ].join('\n');
 
   var TYPES = [['bug', '遇到问题'], ['idea', '功能建议'], ['other', '其他']];
@@ -58,6 +64,7 @@
     mask.innerHTML =
       '<div id="nb-fb" role="dialog" aria-modal="true" aria-label="反馈">' +
         '<h3>反馈</h3><div class="sub">FEEDBACK · 直接发给作者，不用登录</div>' +
+        '<div class="note"></div>' +
         '<div class="seg" role="radiogroup">' + TYPES.map(function (t) { return '<button type="button" data-t="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div>' +
         '<textarea maxlength="4000" placeholder="遇到了什么问题（在哪个页面、做了什么、结果怎样），或者希望加什么功能……"></textarea>' +
         '<div class="cnt">0 / 4000</div>' +
@@ -71,7 +78,7 @@
     // 桌面版整个界面在圆角外壳里，遮罩也放进去，免得盖到窗口圆角外面的透明区域
     (document.getElementById('desktop-window-shell') || document.body).appendChild(mask);
     var $ = function (s) { return mask.querySelector(s); };
-    els = { box: $('#nb-fb'), seg: $('.seg'), text: $('textarea'), cnt: $('.cnt'), contact: $('.contact'), diag: $('.diag'), peek: $('.peek'), pre: $('.diagpre'), shotck: $('.shotck'), shot: $('.shot'), st: $('.st'), go: $('.go'), cancel: $('.cancel') };
+    els = { note: $('.note'), box: $('#nb-fb'), seg: $('.seg'), text: $('textarea'), cnt: $('.cnt'), contact: $('.contact'), diag: $('.diag'), peek: $('.peek'), pre: $('.diagpre'), shotck: $('.shotck'), shot: $('.shot'), st: $('.st'), go: $('.go'), cancel: $('.cancel') };
     els.seg.addEventListener('click', function (e) { var b = e.target.closest('button[data-t]'); if (b) setType(b.getAttribute('data-t')); });
     els.text.addEventListener('input', function () { els.cnt.textContent = els.text.value.length + ' / 4000'; });
     els.peek.addEventListener('click', function (e) { e.preventDefault(); els.pre.classList.toggle('on'); });
@@ -98,9 +105,15 @@
     return '';
   }
 
-  function open() {
+  var PH = '遇到了什么问题（在哪个页面、做了什么、结果怎样），或者希望加什么功能……';
+  function open(opts) {
+    if (!opts || typeof opts !== 'object' || typeof opts.preventDefault === 'function') opts = {};
     build();
     if (mask.classList.contains('on')) return;
+    if (opts.type) state.type = opts.type;
+    els.text.placeholder = opts.placeholder || PH;
+    els.note.textContent = opts.note || '';
+    els.note.classList.toggle('on', !!opts.note);
     // 先截图（面板还没出现），再显示面板
     var cap = typeof api.feedbackCapture === 'function' ? api.feedbackCapture() : Promise.resolve('');
     Promise.resolve(cap).catch(function () { return ''; }).then(function (shot) {
@@ -141,7 +154,8 @@
       state.sending = false;
       r = r || {};
       if (r.ok) {
-        status('收到了，谢谢！编号 ' + (r.id || ''), 'ok');
+        status('收到了，谢谢你！作者会认真看每一条。编号 ' + (r.id || ''), 'ok');
+        try { window.dispatchEvent(new CustomEvent('nb-feedback-sent', { detail: { id: r.id || '' } })); } catch (_e) { }
         els.text.value = ''; els.cnt.textContent = '0 / 4000';
         els.go.textContent = '已发送';
         setTimeout(close, 1800);
@@ -166,9 +180,11 @@
     var host = document.querySelector('#fx-panel .fx-head-actions');
     if (!host) return;
     var b = document.createElement('button');
-    b.type = 'button'; b.id = 'nb-fb-entry'; b.className = 'fx-mini-btn ghost'; b.textContent = '反馈'; b.title = '给作者发反馈（不用登录）';
+    b.type = 'button'; b.id = 'nb-fb-entry'; b.className = 'fx-mini-btn ghost'; b.title = '给作者发反馈（不用登录）';
+    b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 5.5h15v10h-8l-4.5 3.5v-3.5h-2.5z"/><path d="M8.5 9.5h7M8.5 12.2h4.5"/></svg><span>反馈</span>';
     b.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); open(); });
-    host.appendChild(b);
+    // 放在最前面，比「热键」等按钮更显眼
+    host.insertBefore(b, host.firstChild);
   }
   window.openNbFeedback = open;
   ensureEntry();

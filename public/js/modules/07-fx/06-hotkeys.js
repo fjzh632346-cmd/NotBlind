@@ -10,16 +10,41 @@ function readHotkeySettings() {
   var defaults = getHotkeyDefaults();
   try {
     var raw = JSON.parse(localStorage.getItem(HOTKEY_SETTINGS_STORE_KEY) || '{}') || {};
+    var global = Object.assign({}, raw.global || {});
+    // [二改][全局快捷键] 老版本存下的全局键如果还是当时的默认值（用户没改过），换成现在的默认（媒体键 / 不设）。
+    // 只迁移一次：迁移后记下版本号，之后用户自己再录回老组合键也不会被改掉。
+    var rev = Number(raw.globalDefaultsRev) || 1;
+    if (rev < HOTKEY_GLOBAL_DEFAULTS_REV && typeof HOTKEY_GLOBAL_LEGACY_DEFAULTS === 'object') {
+      Object.keys(HOTKEY_GLOBAL_LEGACY_DEFAULTS).forEach(function (k) {
+        if (Object.prototype.hasOwnProperty.call(global, k) && global[k] === HOTKEY_GLOBAL_LEGACY_DEFAULTS[k]) delete global[k];
+      });
+      if (raw.global || raw.local) {
+        try {
+          localStorage.setItem(HOTKEY_SETTINGS_STORE_KEY, JSON.stringify({
+            local: raw.local || {},
+            global: global,
+            globalDefaultsRev: HOTKEY_GLOBAL_DEFAULTS_REV
+          }));
+        } catch (_e) { }
+      }
+    }
     return {
       local: Object.assign({}, defaults.local, raw.local || {}),
-      global: Object.assign({}, defaults.global, raw.global || {})
+      global: Object.assign({}, defaults.global, global)
     };
   } catch (e) {
     return defaults;
   }
 }
 function saveHotkeySettings() {
-  try { localStorage.setItem(HOTKEY_SETTINGS_STORE_KEY, JSON.stringify(hotkeySettings || getHotkeyDefaults())); } catch (e) { }
+  try {
+    var data = hotkeySettings || getHotkeyDefaults();
+    localStorage.setItem(HOTKEY_SETTINGS_STORE_KEY, JSON.stringify({
+      local: data.local || {},
+      global: data.global || {},
+      globalDefaultsRev: typeof HOTKEY_GLOBAL_DEFAULTS_REV === 'number' ? HOTKEY_GLOBAL_DEFAULTS_REV : 2
+    }));
+  } catch (e) { }
 }
 function hotkeyActionMeta(actionKey) {
   for (var i = 0; i < HOTKEY_ACTIONS.length; i++) {
@@ -55,6 +80,11 @@ function hotkeyDisplayPart(part) {
   if (/^Key[A-Z]$/.test(part)) return part.slice(3);
   if (/^Digit[0-9]$/.test(part)) return part.slice(5);
   if (/^Numpad[0-9]$/.test(part)) return 'Num' + part.slice(6);
+  // [二改][全局快捷键] 键盘上的媒体键
+  if (part === 'MediaPlayPause') return '播放/暂停键';
+  if (part === 'MediaTrackNext') return '下一曲键';
+  if (part === 'MediaTrackPrevious') return '上一曲键';
+  if (part === 'MediaStop') return '停止键';
   return part.replace(/^Equal$/, '=').replace(/^Minus$/, '-');
 }
 function formatHotkey(hotkey) {
@@ -77,6 +107,9 @@ function hotkeyToAccelerator(hotkey) {
     if (part === 'ArrowDown') return 'Down';
     if (/^Key[A-Z]$/.test(part)) return part.slice(3);
     if (/^Digit[0-9]$/.test(part)) return part.slice(5);
+    // 键盘事件里的媒体键名（KeyboardEvent.code）和 Electron 注册用的名字不一样
+    if (part === 'MediaTrackNext') return 'MediaNextTrack';
+    if (part === 'MediaTrackPrevious') return 'MediaPreviousTrack';
     return part;
   }).join('+');
 }

@@ -1,8 +1,14 @@
 var LOGIN_EASTER_EGG_BROWSER_PREVIEW_KEY = 'mineradio-login-easter-egg-browser-preview-v1';
+// [二改][登录彩蛋] 不再在登录前输入「世界和平」：登录随时可用，第一次登录成功后直接播放原来输完口令之后的那段动画。
+// 「退出登录」会让下次登录成功时再播一次。浏览器预览（没有桌面版接口）用下面这个本地标记记"播过没有"。
+var NB_WORLD_PEACE_KEY = 'notblind-world-peace-celebrated-v1';
 var loginEasterEggStatusPromise = null;
 var loginEasterEggState = {
   ready: false,
   unlocked: false,
+  gateless: true,
+  celebrated: false,
+  celebrationPending: false,
   clickCount: 0,
   revealed: false,
   attempts: 0,
@@ -27,6 +33,10 @@ function loginEasterEggBrowserPreviewUnlocked() {
   try { return localStorage.getItem(LOGIN_EASTER_EGG_BROWSER_PREVIEW_KEY) === '1'; } catch (_) { return false; }
 }
 
+function nbWorldPeaceBrowserCelebrated() {
+  try { return localStorage.getItem(NB_WORLD_PEACE_KEY) === '1' || loginEasterEggBrowserPreviewUnlocked(); } catch (_) { return false; }
+}
+
 async function ensureLoginEasterEggStatus(force) {
   if (!force && loginEasterEggState.ready) return loginEasterEggState.unlocked;
   if (!force && loginEasterEggStatusPromise) return loginEasterEggStatusPromise;
@@ -36,10 +46,15 @@ async function ensureLoginEasterEggStatus(force) {
     if (api && typeof api.getLoginEasterEggStatus === 'function') {
       try { status = await api.getLoginEasterEggStatus(); } catch (_) { status = null; }
     } else {
-      status = { ok: true, unlocked: loginEasterEggBrowserPreviewUnlocked(), browserPreview: true };
+      status = { ok: true, gateless: true, unlocked: true, celebrated: nbWorldPeaceBrowserCelebrated(), browserPreview: true };
     }
     loginEasterEggState.ready = true;
-    loginEasterEggState.unlocked = !!(status && status.ok && status.unlocked);
+    // 桌面版主进程回报 gateless:true；老版本主进程（还有口令门）按原来的方式处理
+    loginEasterEggState.gateless = !!(status && status.gateless === true);
+    loginEasterEggState.unlocked = loginEasterEggState.gateless ? true : !!(status && status.ok && status.unlocked);
+    if (loginEasterEggState.gateless && !loginEasterEggState.celebrationPending) {
+      loginEasterEggState.celebrated = !!(status && status.celebrated);
+    }
     return loginEasterEggState.unlocked;
   })().finally(function () { loginEasterEggStatusPromise = null; });
   return loginEasterEggStatusPromise;
@@ -105,6 +120,10 @@ function bindLoginEasterEggGate() {
 async function prepareLoginEasterEggGate() {
   bindLoginEasterEggGate();
   var unlocked = await ensureLoginEasterEggStatus(false);
+  if (loginEasterEggState.gateless) {
+    setLoginEasterEggMode(false);
+    return true;
+  }
   setLoginEasterEggMode(!unlocked);
   if (!unlocked) {
     restoreLoginEasterEggInputSurface(false);
@@ -310,7 +329,8 @@ async function requestLoginEasterEggReplayReset() {
     return api.resetLoginEasterEgg();
   }
   try { localStorage.removeItem(LOGIN_EASTER_EGG_BROWSER_PREVIEW_KEY); } catch (_) { }
-  return { ok: true, unlocked: false, resetComplete: true, replayReset: true, browserPreview: true };
+  try { localStorage.removeItem(NB_WORLD_PEACE_KEY); } catch (_) { }
+  return { ok: true, gateless: true, unlocked: false, celebrated: false, resetComplete: true, replayReset: true, browserPreview: true };
 }
 
 function resetLoginEasterEggUiForReplay() {
@@ -357,6 +377,14 @@ function resetLoginEasterEggUiForReplay() {
   }
   var toast = document.getElementById('login-easter-achievement');
   if (toast) toast.classList.remove('show');
+  if (loginEasterEggState.gateless) {
+    // 不设口令门：登录照常可用，只是下次登录成功时再播一次「世界和平」
+    loginEasterEggState.unlocked = true;
+    loginEasterEggState.celebrated = false;
+    loginEasterEggState.celebrationPending = false;
+    setLoginEasterEggMode(false);
+    return;
+  }
   setLoginEasterEggMode(true);
   bindLoginEasterEggGate();
 }
@@ -486,7 +514,7 @@ function dismissLoginEasterEggCinematic() {
   loginEasterEggState.cinematicReady = false;
   var cinematic = document.getElementById('login-easter-unlock-cinematic');
   if (cinematic) cinematic.classList.add('is-dismissing');
-  window.setTimeout(completeLoginEasterEggUnlock, 1250);
+  window.setTimeout(loginEasterEggState.worldPeaceMode ? finishWorldPeaceCelebration : completeLoginEasterEggUnlock, 1250);
 }
 
 function completeLoginEasterEggUnlock() {
@@ -568,6 +596,107 @@ function showLoginEasterEggAchievement() {
     toast.classList.remove('show');
     loginEasterEggState.achievementTimer = null;
   }, 5200);
+}
+
+// ---------- [二改][登录彩蛋] 登录成功之后的「世界和平」 ----------
+// 登录弹窗关上之后，四个像素字从右上角头像处飞出来、在屏幕中间浮着；点一下收起，再弹「已达成成就：世界和平！」
+function nbWorldPeaceAnchorRect() {
+  var sel = ['.mri-isl .mri-av', '#user-btn', '#top-right'];
+  for (var i = 0; i < sel.length; i += 1) {
+    var el = document.querySelector(sel[i]);
+    if (!el) continue;
+    var r = el.getBoundingClientRect();
+    if (r.width > 2 && r.height > 2 && r.bottom > 0 && r.right > 0) return r;
+  }
+  return { left: innerWidth / 2 - 20, top: innerHeight - 60, width: 40, height: 40 };
+}
+
+function playWorldPeaceCelebration() {
+  var cinematic = document.getElementById('login-easter-unlock-cinematic');
+  var phrase = document.getElementById('login-easter-unlock-phrase');
+  if (!cinematic || !phrase) { finishWorldPeaceCelebration(); return; }
+  prepareLoginEasterEggPixelPhrase(phrase);
+  var phraseChars = Array.prototype.slice.call(phrase.querySelectorAll('span'));
+  loginEasterEggState.cinematicActive = true;
+  loginEasterEggState.cinematicReady = false;
+  loginEasterEggState.worldPeaceMode = true;
+  cinematic.classList.remove('is-positioned', 'is-extracting', 'is-ready', 'is-dismissing');
+  cinematic.classList.add('is-mounted');
+  cinematic.setAttribute('aria-hidden', 'false');
+  cinematic.setAttribute('tabindex', '0');
+  phraseChars.forEach(function (charNode) {
+    charNode.style.removeProperty('--extract-x');
+    charNode.style.removeProperty('--extract-y');
+  });
+  window.requestAnimationFrame(function () {
+    var src = nbWorldPeaceAnchorRect();
+    phraseChars.forEach(function (charNode, index) {
+      var targetRect = charNode.getBoundingClientRect();
+      // 四个字从头像附近稍微错开一点出发
+      var fromX = src.left + src.width / 2 + (index - 1.5) * 6 - (targetRect.left + targetRect.width / 2);
+      var fromY = src.top + src.height / 2 - (targetRect.top + targetRect.height / 2);
+      charNode.style.setProperty('--extract-x', fromX.toFixed(2) + 'px');
+      charNode.style.setProperty('--extract-y', fromY.toFixed(2) + 'px');
+    });
+    cinematic.classList.add('is-positioned');
+    void cinematic.offsetWidth;
+    window.requestAnimationFrame(function () {
+      cinematic.classList.add('is-extracting');
+      window.setTimeout(function () {
+        if (!loginEasterEggState.cinematicActive) return;
+        loginEasterEggState.cinematicReady = true;
+        cinematic.classList.add('is-ready');
+        try { cinematic.focus({ preventScroll: true }); } catch (_) { }
+      }, 2700);
+    });
+  });
+}
+
+function finishWorldPeaceCelebration() {
+  loginEasterEggState.cinematicActive = false;
+  loginEasterEggState.cinematicReady = false;
+  loginEasterEggState.worldPeaceMode = false;
+  loginEasterEggState.celebrationPending = false;
+  var cinematic = document.getElementById('login-easter-unlock-cinematic');
+  if (cinematic) {
+    cinematic.classList.remove('is-mounted', 'is-positioned', 'is-extracting', 'is-ready', 'is-dismissing');
+    cinematic.setAttribute('aria-hidden', 'true');
+    cinematic.setAttribute('tabindex', '-1');
+  }
+  showLoginEasterEggAchievement();
+  var api = window.desktopWindow;
+  if (api && typeof api.unlockLoginEasterEgg === 'function') {
+    // 主进程不设口令门时，这一步只是记下"已经庆祝过"
+    Promise.resolve(api.unlockLoginEasterEgg('')).catch(function () { });
+  } else {
+    try { localStorage.setItem(NB_WORLD_PEACE_KEY, '1'); } catch (_) { }
+  }
+}
+
+// 登录成功（弹窗关上）后调用：第一次登录成功才播；弹窗、其他动画都收好之后再开始
+function nbWorldPeaceAfterLogin(provider) {
+  if (!loginEasterEggState.gateless || loginEasterEggState.celebrated || loginEasterEggState.celebrationPending) return false;
+  loginEasterEggState.celebrated = true;
+  loginEasterEggState.celebrationPending = true;
+  var tries = 0;
+  (function wait() {
+    tries += 1;
+    var modal = document.getElementById('login-modal');
+    var busy = (modal && modal.classList.contains('show')) || loginEasterEggState.cinematicActive;
+    if (busy && tries < 40) { window.setTimeout(wait, 250); return; }
+    playWorldPeaceCelebration();
+  })();
+  return true;
+}
+// （这个文件也会被 Node 里的测试 require，所以挂到 window 上之前先看有没有 window）
+if (typeof window !== 'undefined') {
+  window.nbWorldPeaceAfterLogin = nbWorldPeaceAfterLogin;
+  // 调试 / 想再看一次：控制台 replayWorldPeace()
+  window.replayWorldPeace = function () {
+    loginEasterEggState.celebrated = false;
+    loginEasterEggState.celebrationPending = false;
+    return nbWorldPeaceAfterLogin('replay');
+  };
 }
 
 if (typeof document !== 'undefined') {

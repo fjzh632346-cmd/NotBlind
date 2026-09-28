@@ -6,8 +6,9 @@
 //     { state:'intro' }             → 前奏、间奏太长、作词作曲那几行
 //     { state:'line'|'paused', text, translation, key, idx, total }
 //   opts.lead：提前多少秒把下一句换上（各主题按自己的过渡动画长短传，让新句开唱时已经显示好）
-//   开关存在 localStorage：notblind-home-lyric-v1（'0' = 关，默认开）；
-//   桌面背景模式：notblind-home-lyric-desktop-v1（'1' = 也显示，默认不显示），「视觉 › 播放」里有开关。
+//   开关存在 localStorage：notblind-home-lyric-v1（'0' = 关，默认开）；「视觉 › 播放」和各主题主页上的「词」按钮都改它。
+//   [二改 2026-09-28] 窗口和桌面背景用同一个开关（用户要求）：原来桌面背景另有一个开关
+//   notblind-home-lyric-desktop-v1（默认不显示），现在不再单独看它，两个旧函数名留着、都转到这一个开关。
 // ============================================================
 var NB_HOME_LYRIC_KEY = 'notblind-home-lyric-v1';
 var NB_HOME_LYRIC_DESKTOP_KEY = 'notblind-home-lyric-desktop-v1';
@@ -16,21 +17,15 @@ function nbHomeLyricPref() {
 }
 function nbSetHomeLyricPref(on) {
   try { localStorage.setItem(NB_HOME_LYRIC_KEY, on ? '1' : '0'); } catch (_) { }
-  if (typeof showToast === 'function') showToast(on ? '主页会显示此刻的歌词' : '主页只显示每日一句');
+  if (typeof showToast === 'function') showToast(on ? '主页歌词：开 · 放歌时显示此刻这句（窗口和桌面背景都是）' : '主页歌词：关 · 只显示每日一句');
 }
-function nbHomeLyricDesktopPref() {
-  try { return localStorage.getItem(NB_HOME_LYRIC_DESKTOP_KEY) === '1'; } catch (_) { return false; }
-}
-function nbSetHomeLyricDesktopPref(on) {
-  try { localStorage.setItem(NB_HOME_LYRIC_DESKTOP_KEY, on ? '1' : '0'); } catch (_) { }
-  if (typeof showToast === 'function') showToast(on ? '当桌面背景时，主页也显示歌词' : '当桌面背景时，主页只显示每日一句');
-}
+// 旧的"桌面背景单独开关"：现在和上面是同一个
+function nbHomeLyricDesktopPref() { return nbHomeLyricPref(); }
+function nbSetHomeLyricDesktopPref(on) { nbSetHomeLyricPref(on); }
 var NB_HOME_LYRIC_CREDIT = /^\s*(作词|作曲|编曲|词|曲|制作人|制作|监制|混音|母带|和声|和音|吉他|贝斯|鼓|键盘|弦乐|录音|录音室|出品|发行|企划|策划|统筹|演唱|原唱|OP|SP|Lyrics?|Music|Composer|Arranger|Producer)\s*[:：]/i;
 function homeThemeLyric(opts) {
   var lead = opts && opts.lead > 0 ? Math.min(1.5, Number(opts.lead)) : 0;
   if (!nbHomeLyricPref()) return null;
-  var b = document.body;
-  if (b && b.classList.contains('desktop-wallpaper-mode') && !nbHomeLyricDesktopPref()) return null;
   var a = typeof audio !== 'undefined' ? audio : null;
   if (!a || !a.src || a.ended) return { state: 'none' };
   var lines = typeof lyricsLines !== 'undefined' ? lyricsLines : null;

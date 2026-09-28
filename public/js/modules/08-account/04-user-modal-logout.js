@@ -190,7 +190,8 @@ async function logoutAllAccountsAndResetEasterEgg() {
       apiJson('/api/qishui/logout')
     ]);
     var result = await requestLoginEasterEggReplayReset();
-    if (!result || !result.ok || result.unlocked || result.resetComplete === false) {
+    // [二改][登录彩蛋] 不设口令门时（gateless）"退出登录"后登录仍然可用，不要求 unlocked=false
+    if (!result || !result.ok || (!result.gateless && result.unlocked) || result.resetComplete === false) {
       throw new Error(result && (result.error || result.message) || 'LOGIN_EASTER_EGG_REPLAY_RESET_FAILED');
     }
     resetAllProviderRendererLoginState();
@@ -207,7 +208,7 @@ async function logoutAllAccountsAndResetEasterEgg() {
     if (typeof setHomeControlsLocked === 'function') setHomeControlsLocked(true);
     if (typeof updateEmptyHomeVisibility === 'function') updateEmptyHomeVisibility({ forceLoad: false });
     if (typeof renderHomeDashboard === 'function') renderHomeDashboard();
-    showToast('已退出全部账号，登录彩蛋已重新开启');
+    showToast(result && result.gateless ? '已退出全部账号' : '已退出全部账号，登录彩蛋已重新开启');
   } catch (error) {
     console.warn('Logout all accounts and reset easter egg failed:', error);
     showToast('清理未完成，请重启后重试');

@@ -5,6 +5,9 @@
  * 「视觉 › 播放页效果」里切换「3D 舞台 / 平面歌词」；平面歌词可以「跟随主页主题」。
  * 这个文件由 build.py 从预览项目打包（源码在 D:\music\首页概念稿\播放页歌词动效\源码），
  * 改效果请改源码再打包。纯 WebGL / Canvas，不依赖 three.js。
+ * [二改 2026-09-28] 这几处是直接改在这个打包文件里的，源码目录还没同步（重新打包前要先搬过去）：
+ *   NBFX.lyricScale()（歌词大小跟设置里的「歌词大小」fx.lyricScale）+ 四个效果排主行时乘上它 + 接入层 loop 里发现变了就重排；
+ *   接入层 initialMode()：新用户默认平面歌词。（另一处直接改动：shelfShowing() 里的 NBFlatShelf，见平面歌单）
  * ============================================================ */
 ;
 
@@ -93,6 +96,17 @@ try {
       '400 20px ' + NBFX.fonts.serif, '600 20px ' + NBFX.fonts.serif, '900 20px ' + NBFX.fonts.serif, '400 20px ' + NBFX.fonts.mono];
     var all = Promise.all(probes.map(function (p) { return document.fonts.load(p, sample).catch(function () {}); })).then(function () {});
     return Promise.race([all, new Promise(function (r) { setTimeout(r, 6000); })]);
+  };
+  /* [二改 2026-09-28] 歌词大小：和 3D 歌词用同一个「歌词大小」（fx.lyricScale，0.35–1.65，默认 1）。
+   * 各效果排主行歌词时：字号上限 × s；s < 1 时排版框也跟着缩（长句一样变小）；
+   * s > 1 时放宽高度上限（长句会折成两三行、字变大），宽度不超出原来的安全区。
+   * 接入层发现数值变了会让当前效果按新大小重排一次（等于窗口尺寸没变的 resize）。 */
+  NBFX.lyricScale = function () {
+    var v = 1;
+    try { if (typeof fx !== 'undefined' && fx && Number(fx.lyricScale) > 0) v = Number(fx.lyricScale); } catch (e) { }
+    if (typeof global.__nbLfxScale === 'number' && global.__nbLfxScale > 0) v = global.__nbLfxScale;   // 预览台 / 测试用
+    if (!isFinite(v)) v = 1;
+    return v < 0.35 ? 0.35 : v > 1.65 ? 1.65 : v;
   };
 
   /* ---------------- text: layout + mask ---------------- */
@@ -884,8 +898,10 @@ try {
       var g = {};
       g.pole = [Math.max(120, W * 0.125), H * 0.125];
       g.cx = W * 0.5; g.cy = H * 0.42;
-      g.maxW = Math.min(W * 0.74, H * 1.75); g.maxH = H * 0.45;
-      g.size = clamp(H * 0.135, 40, 210); g.minSize = Math.max(20, H * 0.048);
+      // [二改] 歌词大小（NBFX.lyricScale）：字号 × s；调小时框也缩，调大时放宽高度（长句折行变大）
+      var us = NBFX.lyricScale ? NBFX.lyricScale() : 1, box = Math.min(1, us);
+      g.maxW = Math.min(W * 0.74, H * 1.75) * box; g.maxH = Math.min(H * 0.45 * us, H * 0.6);
+      g.size = clamp(H * 0.135, 40, 210) * us; g.minSize = Math.max(14, Math.max(20, H * 0.048) * us);
       g.horY = H * 0.80;
       // 星图尺度：北纬 40°（北京）面朝正北，天极高度 40°，正下方地平线处赤纬 +50°
       g.S = (g.horY - g.pole[1]) / (2 * Math.tan((90 - LAT) / 2 * DEG));
@@ -1950,10 +1966,12 @@ try {
         var ly = f.lyric, tr = f.track || {}, line = ly.idx >= 0 ? ly.line : null, g = geom();
         var text = line ? line.text : (ly.fallback || tr.title || '');
         var maxW = g.right - g.left, areaH = g.bottom - g.top;
-        var subFs = Math.round(M.clamp(H * 0.03, 17, 32));
+        // [二改] 歌词大小（NBFX.lyricScale）：字号上限 × s；调小时排版区也缩；翻译等小字跟着轻一点变
+        var us = NBFX.lyricScale ? NBFX.lyricScale() : 1, box = Math.min(1, us);
+        var subFs = Math.round(M.clamp(H * 0.03, 17, 32) * M.clamp(us, 0.75, 1.3));
         var extra = (line && line.translation) ? subFs * 2.2 : (!line ? subFs * 2.6 : 0);
-        var sMax = Math.min(H * (line ? 0.19 : 0.21), W * 0.14);
-        var lay = layoutBlock(text, maxW, areaH - extra, sMax);
+        var sMax = Math.min(H * (line ? 0.19 : 0.21), W * 0.14) * us;
+        var lay = layoutBlock(text, maxW * box, (areaH - extra) * box, sMax);
         var pad = Math.ceil(lay.size * 0.1) + 8;
         var blk = { lay: lay, pad: pad, w: lay.width, h: lay.height + extra, subs: [] };
         if (line && line.translation) {
@@ -2430,9 +2448,11 @@ try {
       var cache = [];      // {key, ...res}
       function fitMain(text) {
         var lat = isLatin(text), len = text.length;
+        // [二改] 歌词大小（NBFX.lyricScale）：字号 × s；调小时框也缩，调大时放宽两行 / 三行的高度上限
+        var us = NBFX.lyricScale ? NBFX.lyricScale() : 1, box = Math.min(1, us);
         return smartLayout(text, {
-          maxW: Math.min(W * 0.86, W - 2 * 110), maxFs: Math.min(H * (len <= 5 ? 0.2 : 0.18), W * 0.14),
-          maxH2: H * 0.26, maxH3: H * 0.32, minSingle: H * 0.085, min2: H * 0.07,
+          maxW: Math.min(W * 0.86, W - 2 * 110) * box, maxFs: Math.min(H * (len <= 5 ? 0.2 : 0.18), W * 0.14) * us,
+          maxH2: Math.min(H * 0.26 * us, H * 0.4), maxH3: Math.min(H * 0.32 * us, H * 0.5), minSingle: H * 0.085 * us, min2: H * 0.07 * us,
           weight: 900, family: NBFX.fonts.sans, spacing: lat ? 0 : 0.02, lh: 1.16
         });
       }
@@ -2441,7 +2461,7 @@ try {
         var maxW = L.boxWidth;
         var subL = null;
         if (sub) {
-          var ss = M.clamp(H * 0.024, 13, 28);
+          var ss = M.clamp(H * 0.024, 13, 28) * M.clamp(NBFX.lyricScale ? NBFX.lyricScale() : 1, 0.75, 1.3);
           subL = isTitle
             ? NBFX.text.layout(sub, { maxWidth: maxW, size: Math.round(ss * 0.72), minSize: 10, weight: 500, family: NBFX.fonts.mono, spacing: 0.42, lineHeight: 1.3, maxLines: 1 })
             : NBFX.text.layout(sub, { maxWidth: maxW, size: Math.round(ss), minSize: 11, weight: 500, family: NBFX.fonts.sans, spacing: 0.06, lineHeight: 1.3, maxLines: 2 });
@@ -3099,8 +3119,10 @@ try {
         var base = M.clamp(Math.min(W * 0.058, H * 0.104), 30, 156);
         var latin = isLatin(ct.main);
         var nChars = ct.main.length;
-        var size = base * (ct.isLine ? (nChars <= 7 ? 1.12 : 1) : 1.06);
-        var lay = smartLayout(ct.main || ' ', { maxWidth: boxW, maxHeight: H * 0.4, size: size, minSize: Math.max(20, base * 0.5), weight: 500, family: SERIF, spacing: latin ? 0.01 : 0.06, lineHeight: latin ? 1.2 : 1.28, maxLines: 3, align: 'left' });
+        // [二改] 歌词大小（NBFX.lyricScale）：字号 × s；调小时框也缩，调大时放宽高度上限
+        var us = NBFX.lyricScale ? NBFX.lyricScale() : 1, box = Math.min(1, us);
+        var size = base * (ct.isLine ? (nChars <= 7 ? 1.12 : 1) : 1.06) * us;
+        var lay = smartLayout(ct.main || ' ', { maxWidth: boxW * box, maxHeight: Math.min(H * 0.4 * us, H * 0.52), size: size, minSize: Math.max(14, Math.max(20, base * 0.5) * us), weight: 500, family: SERIF, spacing: latin ? 0.01 : 0.06, lineHeight: latin ? 1.2 : 1.28, maxLines: 3, align: 'left' });
         var capSize = M.clamp(base * 0.16, 11, 22);
         var secSize = M.clamp(lay.size * 0.34, 14, 44);
         var capLay = ct.cap ? TX.layout(ct.cap, { maxWidth: boxW, size: capSize, minSize: 10, weight: 400, family: SERIF, spacing: 0.26, maxLines: 1, align: 'left' }) : null;
@@ -3391,8 +3413,22 @@ try {
   function hasBody(c) { return !!(document.body && document.body.classList.contains(c)); }
   function bodyCls(c, on) { if (document.body && document.body.classList.contains(c) !== !!on) document.body.classList.toggle(c, !!on); }
 
+  // [二改 2026-09-28] 新用户：播放页默认就是「跟随主页主题」的平面歌词，和主页一个风格；
+  // 用过以前版本的老用户不变（还是 3D 舞台）。只在第一次判断，判断完就记下来，以后以记下的为准。
+  // 老用户的痕迹：这些键只会在用过一阵之后才写（这个文件执行时，新装的软件里它们都还不存在）
+  var USED_BEFORE_KEYS = ['notblind-onboard-v1', 'notblind-usage-v1', 'mineradio-visual-guide-seen-v4', 'mineradio-last-playback-v1',
+    'mineradio-listen-stats-v1', 'mineradio-listen-rollup-v2', 'mineradio-home-theme-v1'];
+  function initialMode() {
+    var saved = lsGet(MODE_KEY);
+    if (saved === '2d' || saved === '3d') return saved;
+    var usedBefore = USED_BEFORE_KEYS.some(function (k) { return lsGet(k) != null; });
+    var m = usedBefore ? '3d' : '2d';
+    lsSet(MODE_KEY, m);
+    return m;
+  }
+
   var S = {
-    mode: lsGet(MODE_KEY) === '2d' ? '2d' : '3d',
+    mode: initialMode(),
     choice: ORDER.indexOf(lsGet(CHOICE_KEY)) >= 0 ? lsGet(CHOICE_KEY) : 'follow',
     root: null, active: null, dying: [],
     phase: 'off',        // off | prep（等效果画出头两帧）| in（3D 画布淡出）| on | out（3D 画布淡回）
@@ -3832,6 +3868,11 @@ try {
       if (S.slow >= 4 && !S.dprCapped && S.active && S.active.host.dpr > 1.01) { S.dprCapped = true; applyResize(); }
     }
     syncTone(tnow);
+    // [二改] 「歌词大小」（fx.lyricScale）变了：拖动停下 0.15 秒后让效果按新大小原地重排一次
+    var lsc = NBFX.lyricScale ? NBFX.lyricScale() : 1;
+    if (S.lyricScale == null) S.lyricScale = lsc;
+    else if (Math.abs(lsc - S.lyricScale) > 1e-4) { S.lyricScale = lsc; S.lyricScaleAt = tnow; }
+    if (S.lyricScaleAt && tnow - S.lyricScaleAt > 150) { S.lyricScaleAt = 0; applyResize(); }
     var f = null, A0 = S.active;
     // 新效果画好两帧才淡入；淡入完（或等太久）再拆旧的
     if (A0 && !A0.shownAt && A0.frames >= 2) { A0.el.classList.add('on'); A0.shownAt = tnow; }

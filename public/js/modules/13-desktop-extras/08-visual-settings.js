@@ -124,8 +124,8 @@ function nbBuildVisualSheet() {
           '<button type="button" class="nb-sw-row" data-nb-act="sw-desktop-lyrics" role="switch" aria-checked="false"><span class="nb-sw-txt"><b>桌面歌词</b><small>歌词浮在 Windows 桌面最上层</small></span><i class="nb-sw" aria-hidden="true"></i></button>' +
           '<button type="button" class="nb-sw-row" data-nb-act="sw-stage-immersive" role="switch" aria-checked="false"><span class="nb-sw-txt"><b>进入播放页直接沉浸</b><small>点歌名进播放页时，界面自动收起</small></span><i class="nb-sw" aria-hidden="true"></i></button>' +
           // [二改] 主页歌词位（03-home-lyric.js）
-          '<button type="button" class="nb-sw-row" data-nb-act="sw-home-lyric" role="switch" aria-checked="true"><span class="nb-sw-txt"><b>主页显示歌词</b><small>放歌时，主页那句话换成此刻的歌词</small></span><i class="nb-sw" aria-hidden="true"></i></button>' +
-          '<button type="button" class="nb-sw-row nb-sw-sub" data-nb-act="sw-home-lyric-desk" role="switch" aria-checked="false"><span class="nb-sw-txt"><b>当桌面背景时也显示</b><small>关着时，桌面背景上只显示每日一句，不会每句都变</small></span><i class="nb-sw" aria-hidden="true"></i></button>' +
+          '<button type="button" class="nb-sw-row" data-nb-act="sw-home-lyric" role="switch" aria-checked="true"><span class="nb-sw-txt"><b>主页显示歌词</b><small>放歌时，主页那句话换成此刻的歌词；当桌面背景时也一样</small></span><i class="nb-sw" aria-hidden="true"></i></button>' +
+          // [二改 2026-09-28] 原来这里还有「当桌面背景时也显示」从属开关；用户要求窗口和桌面背景用同一个开关，已去掉
         '</div>' +
       '</section>' +
       '<section class="nbv-sec" data-nb-sec="stage">' +
@@ -135,6 +135,8 @@ function nbBuildVisualSheet() {
           '<button type="button" role="radio" data-nb-act="kind-3d" aria-checked="true"><b>3D 舞台</b><small>粒子和立体歌词，可以拖动转视角</small></button>' +
           '<button type="button" role="radio" data-nb-act="kind-2d" aria-checked="false"><b>平面歌词</b><small>整屏一张会动的歌词画面</small></button>' +
         '</div>' +
+        // [二改 2026-09-28] 歌词大小：3D 歌词、平面歌词共用（改的就是设置里原来的「歌词大小」滑条 #fx-lyricscale）
+        '<div class="nbv-size" hidden><span class="nbv-size-l"><b>歌词大小</b><small>3D / 平面歌词共用</small></span><input type="range" aria-label="歌词大小"><output class="nbv-size-o"></output></div>' +
         '<div class="nbv-hint" data-nb-hint="stage" hidden><span>效果在播放页显示</span><button type="button" data-nb-act="go-stage">去播放页看看<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button></div>' +
         '<div class="nbv-presets"></div>' +
         '<div class="nbv-lfx" hidden></div>' +
@@ -176,6 +178,20 @@ function nbBuildVisualSheet() {
       sec.classList.toggle('open', open);
       t.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
+  });
+  // [二改 2026-09-28] 歌词大小滑条 → 设置里原来的 #fx-lyricscale（触发它自己的 input / change：存档、3D 歌词、平面歌词都跟着变）
+  el.addEventListener('input', function (e) {
+    var r = e.target && e.target.closest ? e.target.closest('.nbv-size input[type=range]') : null;
+    var src = r && document.getElementById('fx-lyricscale');
+    if (!src) return;
+    src.value = r.value;
+    src.dispatchEvent(new Event('input', { bubbles: true }));
+    nbSyncLyricSize();
+  });
+  el.addEventListener('change', function (e) {
+    var r = e.target && e.target.closest ? e.target.closest('.nbv-size input[type=range]') : null;
+    var src = r && document.getElementById('fx-lyricscale');
+    if (src) src.dispatchEvent(new Event('change', { bubbles: true }));
   });
   // 在主页点了播放页效果：不把人拽走，只把"去播放页看看"亮一下
   el.addEventListener('click', function (e) {
@@ -235,9 +251,31 @@ function refreshNbVisualSheet() {
   }
   nbAdoptVisualBlocks();
   nbSyncLyricFx();
+  nbSyncLyricSize();
   nbSyncVisualHints();
   nbSyncSwitches();
   nbFixPresetHighlight();
+}
+
+function nbSyncLyricSize() {
+  var el = document.getElementById('nb-visual');
+  if (!el) return;
+  var row = el.querySelector('.nbv-size');
+  var src = document.getElementById('fx-lyricscale');
+  if (!row) return;
+  row.hidden = !src;
+  if (!src) return;
+  var r = row.querySelector('input[type=range]');
+  if (r) {
+    if (r.min !== src.min) r.min = src.min;
+    if (r.max !== src.max) r.max = src.max;
+    if (r.step !== src.step) r.step = src.step;
+    if (document.activeElement !== r || r.value !== src.value) r.value = src.value;
+    nbPaintRange(r);
+  }
+  var o = row.querySelector('.nbv-size-o');
+  var v = parseFloat(src.value);
+  if (o) o.textContent = isFinite(v) ? Math.round(v * 100) + '%' : '';
 }
 
 /* ---------- 播放页效果：3D 舞台 / 平面歌词（notblind-lyric-fx.js） ---------- */
@@ -402,9 +440,15 @@ function openNbVisualSheet(focusSection) {
   if (el.inert !== undefined) el.inert = false;
   nbSyncBodyFlags();
   var body = el.querySelector('.nbv-body');
+  // [二改 2026-09-28] 在播放页打开：直接滚到「03 播放页效果」；在主页打开：回到最上面的「01 主页主题」
+  if (!focusSection) focusSection = nbHomeActive() ? 'home' : 'stage';
   if (focusSection && body) {
     var sec = el.querySelector('[data-nb-sec="' + (focusSection === 'home' ? 'home' : focusSection) + '"]');
-    if (sec) requestAnimationFrame(function () { body.scrollTop = Math.max(0, sec.offsetTop - 8); });
+    // offsetTop 是相对 #nb-visual 量的（面板头也算在里面），要减掉滚动区自己的 offsetTop 才是滚动区里的位置
+    if (sec) requestAnimationFrame(function () {
+      var y = sec.offsetParent === body ? sec.offsetTop : sec.offsetTop - body.offsetTop;
+      body.scrollTop = Math.max(0, y - 8);
+    });
   }
 }
 
@@ -525,7 +569,9 @@ var NB_QUICK = [
   { kind: 'links', items: [
     { label: '播放输出设备', run: function () { if (typeof openAudioOutputWorkflowPanel === 'function') openAudioOutputWorkflowPanel(); else setFxPanelTab('system'); } },
     { label: '热键', run: function () { var b = document.getElementById('hotkey-settings-btn'); if (b) b.click(); } },
-    { label: '使用引导', run: function () { toggleNbSettingsSheet(false); if (typeof startVisualGuide === 'function') startVisualGuide({ manual: true }); } }
+    { label: '使用引导', run: function () { toggleNbSettingsSheet(false); if (typeof startVisualGuide === 'function') startVisualGuide({ manual: true }); } },
+    { label: '重新显示小提示', run: function () { if (typeof window.resetNbTips === 'function') { window.resetNbTips(); if (typeof showToast === 'function') showToast('小提示已重新打开，走到对应的地方会再出现'); } } },
+    { label: '给作者反馈', run: function () { if (typeof window.openNbFeedback === 'function') window.openNbFeedback(); } }
   ] }
 ];
 
@@ -744,6 +790,19 @@ var NB_SHEET_STYLE = [
   '#nb-visual .nbv-kind button[aria-checked=true] b{color:var(--nb-ink)}',
   '#nb-visual .nbv-kind button:not([aria-checked=true]):hover b{color:var(--nb-ink)}',
   '.nbv-presets[hidden],.nbv-lfx[hidden]{display:none}',
+  // [二改 2026-09-28] 歌词大小（3D / 平面共用）：细线滑条，和设置面板一个样子
+  '.nbv-size{display:grid;grid-template-columns:minmax(0,118px) minmax(0,1fr) 42px;align-items:center;gap:12px;margin:-2px 0 12px;padding:4px 4px 12px;border-bottom:1px solid var(--nb-line)}',
+  '.nbv-size[hidden]{display:none}',
+  '.nbv-size-l{display:flex;flex-direction:column;gap:2px;min-width:0}',
+  '.nbv-size-l b{font-size:13px;font-weight:500;color:var(--nb-ink)}',
+  '.nbv-size-l small{font-size:10.5px;color:var(--nb-ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+  '.nbv-size-o{font:11px/1 var(--nb-num);color:var(--nb-ink3);text-align:right;letter-spacing:.02em}',
+  '#nb-visual .nbv-size input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:18px;margin:0;background:transparent;cursor:pointer}',
+  '#nb-visual .nbv-size input[type=range]::-webkit-slider-runnable-track{height:1px;border:0;background:linear-gradient(90deg,var(--nb-ink2) 0,var(--nb-ink2) var(--nb-p,50%),var(--nb-ink4) var(--nb-p,50%),var(--nb-ink4) 100%)}',
+  '#nb-visual .nbv-size input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:11px;height:11px;margin-top:-5px;border-radius:50%;border:1.5px solid var(--nb-ink);background:var(--sk-solid);transition:transform .25s var(--nb-spring),border-color .15s,background .15s}',
+  '#nb-visual .nbv-size input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.25)}',
+  '#nb-visual .nbv-size input[type=range]:active::-webkit-slider-thumb,#nb-visual .nbv-size input[type=range]:focus-visible::-webkit-slider-thumb{border-color:var(--nb-acc);background:var(--nb-acc);transform:scale(1.25)}',
+  '#nb-visual .nbv-size input[type=range]:focus{outline:none}',
   // 平面歌词：跟随主页主题（横条）+ 四张卡
   '#nb-visual .nbv-follow{position:relative;display:flex;align-items:center;gap:12px;width:100%;margin:0 0 12px;padding:6px 40px 6px 6px;border-radius:14px;box-shadow:inset 0 0 0 1px var(--nb-line);transition:background .16s,box-shadow .2s,transform .35s var(--nb-spring)}',
   '#nb-visual .nbv-follow:hover{background:var(--nb-hover)}',
@@ -1107,13 +1166,19 @@ var NB_SHEET_STYLE = [
       toggleNbSettingsSheet(false);
     }, true);
 
-    // 点面板外面：视觉面板收起；设置面板是边调边看的，点舞台不收，只有 × / Esc / 再点「设置」收
+    // 点面板外面：视觉面板收起
+    // [二改 2026-09-28] 设置面板也一样：左键点到面板外面任何地方就收起（反馈：不想非得点 × / 按 Esc）。
+    // 面板自己弹出的取色、快捷键、壁纸等小窗 / 弹窗里的点击不算"外面"。
     document.addEventListener('pointerdown', function (e) {
-      if (!nbSheetState.visual) return;
       var t = e.target;
       if (!t || !t.closest) return;
-      if (t.closest('#nb-visual,#mri-slot,#diy-mode-btn,#fullscreen-diy-btn,#visual-guide,.modal-mask,#toast')) return;
-      closeNbVisualSheet(false);
+      if (nbSheetState.visual) {
+        if (!t.closest('#nb-visual,#mri-slot,#diy-mode-btn,#fullscreen-diy-btn,#visual-guide,.modal-mask,#toast')) closeNbVisualSheet(false);
+      }
+      if (nbSheetState.settings && e.button === 0) {
+        if (t.closest('#fx-panel,[id^="fx-"],#mri-slot,#visual-guide,.modal-mask,#toast,#color-lab-pop,#cover-color-pop,#hotkey-modal,#wallpaper-engine-modal,#wallpaper-engine-details-drawer,#audio-output-workflow-modal,#background-crop-modal,#local-beat-modal,#custom-lyric-modal,[role="dialog"],[role="listbox"],[role="menu"]')) return;
+        toggleNbSettingsSheet(false);
+      }
     }, true);
 
     // 进出主页时刷新"去主页 / 去播放页"提示；沉浸模式、引导开始时收起面板

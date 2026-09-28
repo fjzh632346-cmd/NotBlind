@@ -454,14 +454,14 @@ function cuefieldCreatePreparedAudioGraph(media) {
     graph.highNode.connect(graph.analyser);
     graph.source.connect(graph.beatAnalyser);
     graph.analyser.connect(graph.gainNode);
-    graph.gainNode.connect(audioCtx.destination);
+    graph.gainNode.connect((typeof notblindSoundFxOutput === 'function' ? notblindSoundFxOutput(audioCtx) : audioCtx.destination));
     if (graph.echoSendNode) {
       graph.highNode.connect(graph.echoSendNode);
       graph.echoSendNode.connect(graph.echoDelayNode);
       graph.echoDelayNode.connect(graph.echoFeedbackNode);
       graph.echoFeedbackNode.connect(graph.echoDelayNode);
       graph.echoDelayNode.connect(graph.echoWetNode);
-      graph.echoWetNode.connect(audioCtx.destination);
+      graph.echoWetNode.connect((typeof notblindSoundFxOutput === 'function' ? notblindSoundFxOutput(audioCtx) : audioCtx.destination));
     }
     media.__mineradioPreparedAudioGraph = graph;
     return graph;

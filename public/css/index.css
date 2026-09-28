@@ -6941,7 +6941,9 @@ body.diy-mode #bottom-bar.stage-mode {
 #controls,
 body.simple-mode #controls,
 body.diy-mode #controls {
-  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+  /* [二改 2026-09-28] 右边一组按钮变多（加了音效）后，右栏放不下就往左溢出，「词」压到了「队列」上。
+     右栏至少给到它内容的宽度；空间够时左右两栏仍然等宽，播放键保持居中 */
+  grid-template-columns: minmax(0, 1fr) max-content minmax(max-content, 1fr);
   gap: clamp(8px, 1.7vw, 18px);
 }
 
@@ -7001,7 +7003,7 @@ body.diy-mode #controls {
   #controls,
   body.simple-mode #controls,
   body.diy-mode #controls {
-    grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) max-content minmax(max-content, 1fr);
   }
 
   .control-meta {
@@ -18308,4 +18310,354 @@ body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode {
   body.desktop-shell.desktop-wallpaper-mode.diy-mode #bottom-bar.stage-mode {
     width: calc(100vw - var(--desktop-safe-left) - var(--desktop-safe-right) - 24px);
   }
+}
+
+/* ============================================================
+   Sound FX popover (08a-sound-fx.js)
+   ============================================================ */
+.sound-fx-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center
+}
+
+.sound-fx-control .ctrl-btn {
+  position: relative;
+  z-index: 2
+}
+
+.sound-fx-control.fx-on #sound-fx-btn::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  width: 3px;
+  height: 3px;
+  margin-left: -1.5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .8
+}
+
+.sound-fx-popover {
+  position: absolute;
+  left: 50%;
+  bottom: 58px;
+  transform: translateX(-50%) translateY(8px);
+  width: 318px;
+  padding: 12px 12px 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, .10);
+  background: rgba(10, 10, 14, .82);
+  backdrop-filter: blur(24px) saturate(1.16);
+  -webkit-backdrop-filter: blur(24px) saturate(1.16);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .40), inset 0 1px 0 rgba(255, 255, 255, .08);
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 9px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s, transform .2s;
+  z-index: 9;
+  user-select: none;
+  -webkit-user-select: none
+}
+
+.sound-fx-control.open .sound-fx-popover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0)
+}
+
+#bottom-bar.soft-hidden .sound-fx-popover,
+body:not(.controls-visible) .sound-fx-popover {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translateX(-50%) translateY(8px) scale(.98) !important
+}
+
+body.immersive-mode #sound-fx-control {
+  display: none !important
+}
+
+.sfx-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0
+}
+
+.sfx-title {
+  font-size: 11px;
+  font-weight: 850;
+  color: rgba(255, 255, 255, .72);
+  white-space: nowrap
+}
+
+.sfx-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 246, 200, .92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+.sound-fx-popover.is-off .sfx-name {
+  color: rgba(255, 255, 255, .38)
+}
+
+.sfx-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(255, 255, 255, .06);
+  cursor: pointer;
+  padding: 0;
+  transition: background .2s, border-color .2s
+}
+
+.sfx-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .55);
+  transition: transform .22s cubic-bezier(.3, 1.4, .5, 1), background .2s
+}
+
+.sfx-switch.on {
+  background: rgba(255, 246, 200, .22);
+  border-color: rgba(255, 246, 200, .48)
+}
+
+.sfx-switch.on i {
+  transform: translateX(16px);
+  background: #fff6c8
+}
+
+.sfx-presets {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px
+}
+
+.sfx-presets button,
+.sfx-reset {
+  height: 25px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  background: rgba(255, 255, 255, .045);
+  color: rgba(255, 255, 255, .70);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+  white-space: nowrap;
+  padding: 0 4px;
+  transition: background .18s, border-color .18s, color .18s, transform .18s
+}
+
+.sfx-presets button:hover,
+.sfx-reset:hover {
+  transform: translateY(-1px);
+  color: #fff;
+  border-color: rgba(255, 246, 200, .30);
+  background: rgba(255, 246, 200, .08)
+}
+
+.sfx-presets button.active {
+  color: #1a1812;
+  border-color: transparent;
+  background: rgba(255, 246, 200, .90)
+}
+
+.sound-fx-popover.is-off .sfx-presets button.active {
+  color: rgba(255, 255, 255, .78);
+  background: rgba(255, 255, 255, .12)
+}
+
+.sfx-eq {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  height: 136px;
+  padding-bottom: 18px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .025);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .05)
+}
+
+.sfx-curve {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 118px;
+  pointer-events: none;
+  overflow: visible
+}
+
+.sfx-zero {
+  stroke: rgba(255, 255, 255, .12);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  vector-effect: non-scaling-stroke
+}
+
+.sfx-line {
+  fill: none;
+  stroke: rgba(255, 246, 200, .85);
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+  transition: stroke .2s
+}
+
+.sfx-fill {
+  fill: rgba(255, 246, 200, .07);
+  stroke: none
+}
+
+.sound-fx-popover.is-off .sfx-line {
+  stroke: rgba(255, 255, 255, .28)
+}
+
+.sound-fx-popover.is-off .sfx-fill {
+  fill: rgba(255, 255, 255, .03)
+}
+
+.sfx-band {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 136px;
+  cursor: ns-resize;
+  outline: none;
+  touch-action: none
+}
+
+.sfx-track {
+  position: relative;
+  width: 2px;
+  height: 106px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .08)
+}
+
+.sfx-band:hover .sfx-track,
+.sfx-band:focus-visible .sfx-track {
+  background: rgba(255, 255, 255, .16)
+}
+
+.sfx-thumb {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--sfx-pos, .5) * 100%);
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  background: rgba(20, 20, 24, .9);
+  border: 1.6px solid rgba(255, 255, 255, .62);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .4);
+  transition: transform .15s, border-color .15s, background .15s
+}
+
+.sfx-band.boost .sfx-thumb,
+.sfx-band.cut .sfx-thumb {
+  border-color: #fff6c8
+}
+
+.sfx-band:hover .sfx-thumb,
+.sfx-band:focus-visible .sfx-thumb,
+.sfx-band.dragging .sfx-thumb {
+  transform: scale(1.22);
+  background: #fff6c8;
+  border-color: #fff6c8
+}
+
+.sound-fx-popover.is-off .sfx-thumb {
+  border-color: rgba(255, 255, 255, .3)
+}
+
+.sfx-band em {
+  position: absolute;
+  bottom: 3px;
+  font-style: normal;
+  font-size: 9px;
+  color: rgba(255, 255, 255, .40);
+  font-variant-numeric: tabular-nums
+}
+
+.sfx-readout {
+  position: absolute;
+  right: 8px;
+  top: 6px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, .45);
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff6c8;
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-3px);
+  transition: opacity .18s, transform .18s
+}
+
+.sfx-readout.show {
+  opacity: 1;
+  transform: translateY(0)
+}
+
+.sfx-row label {
+  font-size: 10.5px
+}
+
+.sfx-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 25px
+}
+
+.sfx-note {
+  font-size: 10px;
+  color: rgba(255, 220, 150, .72);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap
+}
+
+.sfx-reset {
+  flex: 0 0 auto;
+  padding: 0 12px
+}
+
+/* follow the saved panel glass the other bottom-bar popovers use */
+.sound-fx-popover {
+  background: var(--saved-panel-glass-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--saved-panel-glass-shadow) !important;
+  backdrop-filter: var(--saved-panel-glass-filter) !important;
+  -webkit-backdrop-filter: var(--saved-panel-glass-filter) !important
+}
+
+html.control-glass-svg-ok .sound-fx-popover {
+  backdrop-filter: blur(22px) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(1.16) !important
 }

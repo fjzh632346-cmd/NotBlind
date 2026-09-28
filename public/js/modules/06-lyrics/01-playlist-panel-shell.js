@@ -256,6 +256,13 @@ function toggleMiniQueue(e) {
 function closeMiniQueue() {
   setMiniQueueOpen(false);
 }
+// [二改 2026-09-28] 播放条上的「当前队列」小窗：左键点到外面任何地方就收起
+document.addEventListener('pointerdown', function (e) {
+  if (!miniQueueOpen || (e.button != null && e.button !== 0)) return;
+  var t = e.target;
+  if (t && t.closest && t.closest('#mini-queue-popover,#mini-queue-btn,.modal-mask,[role="dialog"],#toast')) return;
+  closeMiniQueue();
+}, true);
 function openPlaylistPanelTab(tab, preserve) {
   tab = normalizePlaylistPanelTab(tab);
   var panel = document.getElementById('playlist-panel');
