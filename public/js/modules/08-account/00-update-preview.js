@@ -1,7 +1,62 @@
 // ============================================================
-// Update preview: external download page only.
-// Not Blind no longer downloads installers or applies resource patches.
+// Update preview.
+// [二改 3.1.1] 打包版优先走软件内自动更新（主进程 desktop/auto-updater.js：
+// 后台下载、sha512 校验、重启安装）；自动更新不可用或失败时，
+// 退回原来的「浏览器打开下载页」。
 // ============================================================
+var autoUpdateState = { supported: false, status: 'idle', percent: 0 };
+
+function autoUpdateBridge() {
+  var bridge = window.desktopWindow && window.desktopWindow.autoUpdate;
+  return bridge && typeof bridge.getState === 'function' ? bridge : null;
+}
+
+function autoUpdateActive() {
+  if (!autoUpdateState.supported) return false;
+  var s = autoUpdateState.status;
+  return s === 'available' || s === 'downloading' || s === 'downloaded';
+}
+
+function formatUpdateBytes(n) {
+  n = Number(n) || 0;
+  if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+  if (n >= 1024) return Math.round(n / 1024) + ' KB';
+  return n + ' B';
+}
+
+function applyAutoUpdateState(next) {
+  var prevStatus = autoUpdateState.status;
+  autoUpdateState = Object.assign({}, autoUpdateState, next || {});
+  if (!autoUpdateState.supported) return;
+  if (autoUpdateActive()) {
+    updatePreviewState.updateAvailable = true;
+    if (autoUpdateState.version) updatePreviewState.version = autoUpdateState.version;
+    if (!updatePreviewState.hero || updatePreviewState.hero === '当前版本已是最新。') {
+      updatePreviewState.hero = '发现新版本，正在后台准备。';
+    }
+  }
+  if (prevStatus === autoUpdateState.status) {
+    // 只是进度变了：别整块重画
+    updateUpdatePreviewProgress();
+    syncUpdatePreviewStateClass();
+  } else {
+    renderUpdatePreviewPanel();
+  }
+  if (autoUpdateActive() && !updatePreviewState.visible) setUpdatePreviewVisible(true);
+  if (autoUpdateState.status === 'downloaded' && prevStatus !== 'downloaded') {
+    pulseUpdateReady();
+    if (typeof showToast === 'function') showToast('新版本 v' + (autoUpdateState.version || '') + ' 已下载好，点右上角的更新图标重启即可');
+  }
+}
+
+function initAutoUpdateBridge() {
+  var bridge = autoUpdateBridge();
+  if (!bridge) return;
+  try {
+    if (typeof bridge.onState === 'function') bridge.onState(applyAutoUpdateState);
+    bridge.getState().then(applyAutoUpdateState).catch(function () {});
+  } catch (e) { }
+}
 function isSafeUpdatePageUrl(value) {
   var raw = String(value || '').trim();
   if (!raw || raw.length > 2048) return false;
@@ -55,6 +110,7 @@ function currentUpdatePageUrl(preferredIndex) {
 function initUpdatePreview() {
   renderUpdatePreviewPanel();
   setUpdatePreviewVisible(false);
+  initAutoUpdateBridge();
   checkLatestUpdate();
 }
 
@@ -87,7 +143,7 @@ async function checkLatestUpdate() {
     updatePreviewState.hero = '暂时无法检查更新。';
     updatePreviewState.message = (e && e.message) || 'UPDATE_CHECK_FAILED';
     renderUpdatePreviewPanel();
-    setUpdatePreviewVisible(false);
+    setUpdatePreviewVisible(autoUpdateActive());
   }
 }
 
@@ -128,6 +184,7 @@ function applyLatestUpdateInfo(data) {
   updatePreviewState.hero = release.summary
     || (updatePreviewState.updateAvailable ? '发现新版本，建议更新。' : '当前版本已是最新。');
   updatePreviewState.notes = Array.isArray(release.notes) ? release.notes.slice(0, 4) : [];
+  if (autoUpdateActive()) updatePreviewState.updateAvailable = true;
   renderUpdatePreviewPanel();
   setUpdatePreviewVisible(updatePreviewState.updateAvailable || updatePreviewState.preview);
 }
@@ -187,7 +244,7 @@ function renderUpdateDownloadSources() {
   if (!container) return;
   var pages = currentUpdateDownloadPages();
   container.innerHTML = '';
-  container.hidden = !updatePreviewState.updateAvailable || pages.length < 2;
+  container.hidden = !updatePreviewState.updateAvailable || pages.length < 2 || autoUpdateActive();
   if (container.hidden) return;
   pages.forEach(function (page, index) {
     var button = document.createElement('button');
@@ -206,8 +263,11 @@ function renderUpdateDownloadSources() {
 function syncUpdatePreviewStateClass() {
   var entry = document.getElementById('update-entry');
   var modal = document.querySelector('#update-modal .update-modal');
-  var isOpening = updatePreviewState.status === 'opening';
-  var isOpened = updatePreviewState.status === 'opened';
+  var auto = autoUpdateActive();
+  var autoDownloading = auto && (autoUpdateState.status === 'downloading' || autoUpdateState.status === 'available');
+  var autoReady = auto && autoUpdateState.status === 'downloaded';
+  var isOpening = updatePreviewState.status === 'opening' || autoDownloading;
+  var isOpened = updatePreviewState.status === 'opened' || autoReady;
   var isError = updatePreviewState.status === 'error';
   var downloadPages = currentUpdateDownloadPages();
   var selectedPage = downloadPages[Number(updatePreviewState.selectedDownloadPageIndex || 0)] || downloadPages[0] || null;
@@ -222,7 +282,11 @@ function syncUpdatePreviewStateClass() {
   }
   var label = document.getElementById('update-btn-label');
   if (label) {
-    if (isOpening) label.textContent = '正在打开下载页';
+    if (autoReady) label.textContent = '重启并更新';
+    else if (autoDownloading) label.textContent = autoUpdateState.percent > 0
+      ? '后台下载中 ' + Math.floor(autoUpdateState.percent) + '%'
+      : '正在准备下载';
+    else if (isOpening) label.textContent = '正在打开下载页';
     else if (isOpened) label.textContent = '下载页已打开';
     else if (isError) label.textContent = '重试打开';
     else if (!updatePreviewState.updateAvailable) label.textContent = '当前已是最新';
@@ -232,7 +296,9 @@ function syncUpdatePreviewStateClass() {
   }
   var btn = document.getElementById('update-primary-btn');
   if (btn) {
-    btn.disabled = isOpening || !updatePreviewState.updateAvailable || !updateUrl;
+    btn.disabled = auto
+      ? !autoReady
+      : (isOpening || !updatePreviewState.updateAvailable || !updateUrl);
   }
   var sourceButtons = document.querySelectorAll('#update-download-sources .update-download-source');
   Array.prototype.forEach.call(sourceButtons, function (sourceButton) {
@@ -242,20 +308,29 @@ function syncUpdatePreviewStateClass() {
   });
   var foot = document.getElementById('update-footnote');
   if (foot) {
-    if (isOpening) foot.textContent = '正在调用系统浏览器。';
+    if (autoReady) foot.textContent = '已下载并校验完成。点按钮会先安全退出，再自动安装并重新打开；不点也行，下次退出软件时自动装好。';
+    else if (autoDownloading) foot.textContent = autoUpdateState.total > 0
+      ? '正在后台下载（' + formatUpdateBytes(autoUpdateState.transferred) + ' / ' + formatUpdateBytes(autoUpdateState.total) + '），可以继续听歌。只下载变化的部分时会更快。'
+      : '正在后台下载新版本，可以继续听歌。';
+    else if (isOpening) foot.textContent = '正在调用系统浏览器。';
     else if (isError) foot.textContent = '无法打开下载页：' + (updatePreviewState.errorReason || '请稍后重试');
     else if (!updatePreviewState.updateAvailable) foot.textContent = '当前版本已是最新。';
-    else if (downloadPages.length || updatePreviewState.externalUrl) foot.textContent = '请使用本次公告中的最新网盘链接，旧收藏链接可能不是最新版。软件不会在本地下载或应用补丁。';
-    else foot.textContent = '将在浏览器打开 GitHub 更新页面；软件不会在本地下载或应用补丁。';
+    else if (downloadPages.length || updatePreviewState.externalUrl) foot.textContent = '请使用本次公告中的最新网盘链接，旧收藏链接可能不是最新版。';
+    else if (autoUpdateState.supported && autoUpdateState.status === 'error') foot.textContent = '软件内下载没成功，可以改用浏览器打开 GitHub 更新页面手动下载。';
+    else foot.textContent = '将在浏览器打开 GitHub 更新页面。';
   }
 }
 
 function updateUpdatePreviewProgress() {
-  updatePreviewState.progress = 0;
+  var pct = 0;
+  if (autoUpdateActive()) {
+    pct = autoUpdateState.status === 'downloaded' ? 100 : Math.max(0, Math.min(100, Number(autoUpdateState.percent) || 0));
+  }
+  updatePreviewState.progress = pct;
   var fill = document.getElementById('update-btn-fill');
-  if (fill) fill.style.width = '0%';
+  if (fill) fill.style.width = pct + '%';
   var ring = document.getElementById('update-progress-ring');
-  if (ring) ring.style.strokeDashoffset = '55.29';
+  if (ring) ring.style.strokeDashoffset = String((55.29 * (1 - pct / 100)).toFixed(2));
 }
 
 function openUpdatePanel() {
@@ -320,6 +395,16 @@ function openUpdateDownloadSource(index) {
 }
 
 async function startUpdatePreviewDownload(preferredIndex) {
+  if (autoUpdateActive()) {
+    var bridge = autoUpdateBridge();
+    if (autoUpdateState.status === 'downloaded' && bridge) {
+      showToast('正在退出并安装新版本…');
+      try { await bridge.installNow(); } catch (e) { showToast('没能启动安装，请稍后重试'); }
+    } else {
+      showToast('正在后台下载，好了会提示你');
+    }
+    return;
+  }
   if (updatePreviewState.status === 'opening') return;
   if (!updatePreviewState.updateAvailable) {
     showToast('当前版本已是最新');

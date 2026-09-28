@@ -72,6 +72,9 @@ screenshots/
 _debug_desktop/
 _backup_*/
 
+# One-click release logs
+_release_logs/
+
 # Push helpers
 _push_tmp/
 *.bundle

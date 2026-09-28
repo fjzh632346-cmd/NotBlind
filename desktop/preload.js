@@ -90,6 +90,19 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   clearKugouMusicLogin: () => ipcRenderer.invoke('kugou-music-clear-login'),
   clearQishuiMusicLogin: () => ipcRenderer.invoke('qishui-music-clear-login'),
   openUpdatePage: (url) => ipcRenderer.invoke('mineradio-open-update-page', String(url || '')),
+  // [二改 3.1.1] 软件内自动更新
+  autoUpdate: {
+    getState: () => ipcRenderer.invoke('notblind-auto-update-get-state'),
+    check: () => ipcRenderer.invoke('notblind-auto-update-check'),
+    download: () => ipcRenderer.invoke('notblind-auto-update-download'),
+    installNow: () => ipcRenderer.invoke('notblind-auto-update-install'),
+    onState: (callback) => {
+      if (typeof callback !== 'function') return () => {};
+      const listener = (_event, state) => callback(state || {});
+      ipcRenderer.on('notblind-auto-update-state', listener);
+      return () => ipcRenderer.removeListener('notblind-auto-update-state', listener);
+    },
+  },
   restartApp: () => ipcRenderer.invoke('mineradio-restart-app'),
   configureGlobalHotkeys: (bindings) => ipcRenderer.invoke('mineradio-hotkeys-configure-global', bindings || []),
   copyText: (text) => {

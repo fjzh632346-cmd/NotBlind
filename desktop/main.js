@@ -26,6 +26,7 @@ const {
 const { extractKugouAuth } = require('../kugou-api');
 const { qishuiCookieHasLogin } = require('../qishui-api');
 const { clearSpotifyToken } = require('../spotify-api');
+const { createNotBlindAutoUpdater } = require('./auto-updater');
 
 registerWallpaperEngineScheme(protocol);
 registerLocalMusicScheme(protocol);
@@ -6325,6 +6326,45 @@ ipcMain.handle('mineradio-open-update-page', async (event, value) => {
   }
 });
 
+// [二改 3.1.1] 软件内自动更新（后台下载 + 重启安装）
+let notblindAutoUpdater = null;
+function getNotBlindAutoUpdater() {
+  if (notblindAutoUpdater) return notblindAutoUpdater;
+  notblindAutoUpdater = createNotBlindAutoUpdater({
+    sendState: (state) => {
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('notblind-auto-update-state', state);
+      }
+    },
+    log: (...args) => console.log('[AutoUpdate]', ...args),
+  });
+  return notblindAutoUpdater;
+}
+
+ipcMain.handle('notblind-auto-update-get-state', async (event) => {
+  if (!isTrustedMainWindowIpc(event)) return { supported: false, reason: 'UNTRUSTED_SENDER' };
+  return getNotBlindAutoUpdater().getState();
+});
+
+ipcMain.handle('notblind-auto-update-check', async (event) => {
+  if (!isTrustedMainWindowIpc(event)) return { supported: false, reason: 'UNTRUSTED_SENDER' };
+  return getNotBlindAutoUpdater().check();
+});
+
+ipcMain.handle('notblind-auto-update-download', async (event) => {
+  if (!isTrustedMainWindowIpc(event)) return { supported: false, reason: 'UNTRUSTED_SENDER' };
+  return getNotBlindAutoUpdater().download();
+});
+
+ipcMain.handle('notblind-auto-update-install', async (event) => {
+  if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'UNTRUSTED_SENDER' };
+  const ok = getNotBlindAutoUpdater().installNow(() => {
+    appQuitting = true;
+    app.quit();
+  });
+  return { ok };
+});
+
 ipcMain.handle('mineradio-restart-app', async (event) => {
   if (!isTrustedMainWindowIpc(event)) return { ok: false, error: 'RESTART_UNTRUSTED_SENDER' };
   try {
@@ -7443,6 +7483,9 @@ if (!gotSingleInstanceLock) {
       try { handleChildProcessGoneForStability(details || {}); } catch (_) { }
     });
     await createWindow();
+    try { getNotBlindAutoUpdater().start(); } catch (e) {
+      console.warn('[AutoUpdate] start failed:', e && e.message || e);
+    }
   }).catch((e) => reportWindowCreationFailure('Main', e));
 
   app.on('activate', () => {
